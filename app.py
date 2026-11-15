@@ -2,8 +2,10 @@ import calendar
 import copy
 import datetime as dt
 import html
+import time
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import streamlit as st
 
 st.set_page_config(
@@ -264,38 +266,91 @@ init_state()
 # ---------------------------------------------------------------------------
 # هوش مصنوعی (Gemini)
 # ---------------------------------------------------------------------------
-def _auto_model():
-    """اولین مدل flash مناسب را از فهرست مدل‌های حساب شما پیدا می‌کند."""
-    names = [m.name for m in genai.list_models()
-             if "generateContent" in (getattr(m, "supported_generation_methods", None) or [])]
-    skip = ("lite", "image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics", "gemma")
+RESEARCH_RULES = (
+    "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب تحقیق کن و پاسخ را به زبان فارسی، "
+    "کامل، دقیق و با جزئیات بنویس (محدودیتی برای طول نیست). اعداد، تاریخ‌ها، نام افراد و شرکت‌ها را بیاور. "
+    "هر ادعای مهم را با نام منبع همراه کن. هرگز خودت لینک نساز؛ لینک منابع واقعی بعد از متن "
+    "به‌صورت خودکار اضافه می‌شود. اگر دربارهٔ درستی چیزی مطمئن نیستی، صریحاً بگو.\n\n"
+)
+NEWS_PROMPT = RESEARCH_RULES + (
+    "ساختار پاسخ: ۱) توضیح ساده برای مخاطب عمومی (سطح کلاس ششم)؛ ۲) جزئیات فنی و آمار؛ "
+    "۳) پیشینه و زمینهٔ خبر؛ ۴) محدودیت‌ها، مناقشه‌ها و میزان اطمینان به درستی خبر؛ "
+    "۵) چند زاویهٔ پیشنهادی برای ویدیو.\nخبر: {title} — {desc}"
+)
+DEEP_PROMPT = RESEARCH_RULES + (
+    "برای یک مینی‌مستند تکنولوژی دربارهٔ موضوع زیر اطلاعات پس‌زمینه، تاریخچه، حقایق کلیدی، "
+    "نکته‌های کمتر شناخته‌شده و چند زاویهٔ روایی جذاب ارائه بده.\nموضوع: {title}"
+)
+
+
+def _auto_model(client):
+    """مناسب‌ترین مدل flash را از فهرست مدل‌های حساب شما پیدا می‌کند."""
+    names = [m.name for m in client.models.list()
+             if "generateContent" in (getattr(m, "supported_actions", None) or [])]
+    skip = ("image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics", "gemma", "lite")
     flash = sorted((n for n in names if "flash" in n and not any(x in n for x in skip)), reverse=True)
     return (flash or names or [None])[0]
 
 
-def ask_ai(prompt):
+def _stream(client, model_name, prompt, box, use_search=True):
+    cfg = types.GenerateContentConfig(
+        temperature=0.4,
+        tools=[types.Tool(google_search=types.GoogleSearch())] if use_search else None,
+    )
+    text, sources = "", {}
+    for chunk in client.models.generate_content_stream(model=model_name, contents=prompt, config=cfg):
+        text += chunk.text or ""
+        try:
+            for gc in chunk.candidates[0].grounding_metadata.grounding_chunks or []:
+                if gc.web and gc.web.uri:
+                    sources.setdefault(gc.web.uri, gc.web.title or gc.web.uri)
+        except (AttributeError, IndexError, TypeError):
+            pass
+        box.markdown(text + " ▌")
+    if sources:
+        text += "\n\n---\n**منابع (لینک‌های واقعی از جست‌وجوی گوگل):**\n" + "\n".join(
+            f"{i}. [{title}]({uri})" for i, (uri, title) in enumerate(sources.items(), 1))
+    elif use_search:
+        text += "\n\n---\n⚠️ این بار جست‌وجو لینکی برنگرداند؛ اطلاعات را پیش از انتشار راستی‌آزمایی کنید."
+    box.markdown(text)
+    return text
+
+
+def ask_ai(prompt, box=None):
+    """پاسخ را زنده نشان می‌دهد و متن کامل (همراه لینک منابع واقعی) را برمی‌گرداند."""
     ss = st.session_state
     key = ss.get("api_key", "")
     if not key:
         st.error("لطفاً کلید Gemini را در منوی کناری وارد کنید.")
         return None
-    genai.configure(api_key=key)
+    box = box if box is not None else st.empty()
+    client = genai.Client(api_key=key)
     name = (ss.get("model_name") or "").strip() or ss.get("auto_model") or "gemini-flash-latest"
+    text, err = None, None
     try:
-        return genai.GenerativeModel(name).generate_content(prompt).text
+        text = _stream(client, name, prompt, box)
     except Exception as exc:  # noqa: BLE001
+        err = exc
         msg = str(exc).lower()
-        if any(w in msg for w in ("404", "no longer available", "not found", "not supported")):
-            try:
-                auto = _auto_model()
+        try:
+            if any(w in msg for w in ("404", "no longer available", "not found", "not supported")):
+                auto = _auto_model(client)
                 if auto and auto.replace("models/", "") != name.replace("models/", ""):
                     ss["auto_model"] = auto
                     st.info(f"مدل «{name}» در دسترس نبود؛ با «{auto}» انجام شد.")
-                    return genai.GenerativeModel(auto).generate_content(prompt).text
-            except Exception as exc2:  # noqa: BLE001
-                exc = exc2
-        st.error(f"خطا در ارتباط با Gemini: {exc}")
+                    text, err = _stream(client, auto, prompt, box), None
+            elif any(w in msg for w in ("google_search", "grounding", "tool")):
+                st.warning("جست‌وجوی وب برای این کلید/مدل فعال نیست؛ پاسخ بدون لینک منبع تولید شد.")
+                text, err = _stream(client, name, prompt, box, use_search=False), None
+        except Exception as exc2:  # noqa: BLE001
+            err = exc2
+    if text is None:
+        st.error(f"خطا در ارتباط با Gemini: {err}")
         return None
+    if not text.strip():
+        st.error("پاسخی دریافت نشد. نام مدل را در منوی کناری عوض کنید.")
+        return None
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -324,20 +379,17 @@ def news_item(idx, item):
             item["status"] = "Rejected"
             st.rerun()
         if ai:
-            with st.spinner("در حال تهیهٔ توضیح و منابع..."):
-                text = ask_ai(
-                    "برای خبر زیر، یک توضیح ساده در سطح دانش‌آموز کلاس ششم به زبان فارسی بنویس "
-                    "و چند منبع معتبر برای بررسی بیشتر پیشنهاد بده. اگر از آدرس لینک مطمئن نیستی، "
-                    "فقط نام منبع را بنویس و لینک نساز.\n"
-                    f"خبر: {item['title']} — {item['desc']}"
-                )
+            t0 = time.time()
+            text = ask_ai(NEWS_PROMPT.format(title=item["title"], desc=item["desc"]))
+            st.session_state["last_ai_secs"] = round(time.time() - t0, 1)
             if text:
                 item["ai"] = text
                 if item["status"] == "Pending":
                     item["status"] = "Reviewing"
                 st.rerun()
         if item["ai"]:
-            with st.expander("نتیجهٔ بررسی هوشمند"):
+            secs = st.session_state.get("last_ai_secs")
+            with st.expander("نتیجهٔ بررسی هوشمند" + (f" ({fa(secs)} ثانیه)" if secs else "")):
                 st.markdown(item["ai"])
 
 
@@ -380,12 +432,7 @@ def render_ideas():
                     ss.cal_year, ss.cal_month = pub.year, pub.month
                     st.rerun()
                 if add_scn:
-                    with st.spinner("در حال آماده‌سازی زوایای روایت..."):
-                        text = ask_ai(
-                            "برای یک مینی‌مستند تکنولوژی به زبان فارسی، اطلاعات پس‌زمینه، "
-                            "حقایق کلیدی و چند زاویهٔ روایی جذاب دربارهٔ موضوع زیر بنویس:\n"
-                            f"{topic['title']}"
-                        )
+                    text = ask_ai(DEEP_PROMPT.format(title=topic["title"]))
                     if text:
                         topic["scenario"] = text
                         st.rerun()
