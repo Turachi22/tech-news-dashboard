@@ -303,13 +303,8 @@ def _version(name):
 
 
 def _candidates(api_key):
-    """مدل‌های flash متنی، از جدیدترین نسخه به قدیمی‌ترین."""
-    skip = ("image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics",
-            "omni", "computer", "native", "pro")
-    flash = [n for n in _list_models(api_key)
-             if ("flash" in n or "gemma" in n) and not any(x in n for x in skip)]
-    flash.sort(key=lambda n: ("gemma" in n, "latest" in n, -_version(n), "lite" in n, "preview" in n, n))
-    return flash
+  # قفل کردن روی مدل‌های کاملاً پایدار و تست‌شده برای جلوگیری از هنگ کردن
+  return ["gemini-1.5-flash", "gemini-2.5-flash"]
 
 
 @st.cache_resource
