@@ -312,6 +312,19 @@ def _candidates(api_key):
     return flash
 
 
+@st.cache_resource
+def _reasons():
+    return {}
+
+
+def _code(low, c):
+    return re.search(rf"\b{c}\b", low) is not None
+
+
+def _is_quota(low):
+    return _code(low, "429") or "resource_exhausted" in low or "quota" in low
+
+
 def _get_keys():
     """کلیدها را از Secrets (برای استقرار) و از کادرهای منوی کناری جمع می‌کند."""
     keys = []
@@ -340,10 +353,11 @@ def _is_blocked(kid, name):
 def _block(kid, name, exc):
     """بر اساس نوع خطا تعیین می‌کند این (کلید، مدل) تا چه زمانی کنار بماند."""
     low = str(exc).lower()
-    if any(w in low for w in ("api_key_invalid", "api key not valid", "permission_denied", "403")):
+    _reasons()[f"{kid}:{name}"] = str(exc)[:220]
+    if any(w in low for w in ("api_key_invalid", "api key not valid", "permission_denied")) or _code(low, "403"):
         _blocked()[f"{kid}:*"] = time.time() + 3600  # کلید نامعتبر
         return
-    if "limit: 0" in low or any(w in low for w in ("404", "no longer available", "not found")):
+    if "limit: 0" in low or _code(low, "404") or any(w in low for w in ("no longer available", "not found")):
         secs = 24 * 3600  # در پلن رایگان وجود ندارد
     elif "perday" in low.replace(" ", "") or "per day" in low:
         tz = ZoneInfo("America/Los_Angeles")  # سهمیهٔ روزانه نیمه‌شب وقت لس‌آنجلس ریست می‌شود
@@ -376,27 +390,34 @@ def _stream(client, model_name, prompt, box, use_search=True):
             f"{i}. [{title}]({uri})" for i, (uri, title) in enumerate(sources.items(), 1))
     elif use_search:
         text += "\n\n---\n⚠️ این بار جست‌وجو لینکی برنگرداند؛ اطلاعات را پیش از انتشار راستی‌آزمایی کنید."
+    else:
+        text += "\n\n---\n⚠️ این پاسخ بدون جست‌وجوی وب تولید شده و لینک منبع ندارد؛ پیش از انتشار حتماً راستی‌آزمایی کنید."
     box.markdown(text)
     return text
 
 
-def _run(client, name, prompt, box):
-    """با جست‌وجو اجرا می‌کند؛ اگر ابزار جست‌وجو رد شد، بدون آن."""
+def _run(client, name, prompt, box, kid=""):
+    """با جست‌وجو اجرا می‌کند؛ اگر جست‌وجو/سهمیهٔ آن مشکل داشت، همان مدل را بدون جست‌وجو امتحان می‌کند."""
+    skey = f"{kid}:{name}:search"
+    if _blocked().get(skey, 0) > time.time():
+        return _stream(client, name, prompt, box, use_search=False)
     try:
         return _stream(client, name, prompt, box)
     except Exception as exc:  # noqa: BLE001
-        msg = str(exc).lower()
-        if any(w in msg for w in ("google_search", "grounding")):
-            st.warning("جست‌وجوی وب برای این کلید/مدل فعال نیست؛ پاسخ بدون لینک منبع تولید شد.")
-            return _stream(client, name, prompt, box, use_search=False)
+        low = str(exc).lower()
+        if any(w in low for w in ("google_search", "grounding")) or _is_quota(low):
+            text = _stream(client, name, prompt, box, use_search=False)  # اگر این هم خطا داد، بالا می‌رود
+            _blocked()[skey] = time.time() + 3600
+            st.warning("جست‌وجوی وب (برای لینک منبع) روی این کلید/مدل در دسترس نبود؛ پاسخ بدون لینک تولید شد.")
+            return text
         raise
 
 
 def _retryable(exc):
-    msg = str(exc).lower()
-    return any(w in msg for w in ("404", "no longer available", "not found", "not supported",
-                                  "429", "resource_exhausted", "quota", "api_key_invalid",
-                                  "api key not valid", "permission_denied", "403"))
+    low = str(exc).lower()
+    return (_is_quota(low) or _code(low, "404") or _code(low, "403")
+            or any(w in low for w in ("no longer available", "not found", "not supported",
+                                      "api_key_invalid", "api key not valid", "permission_denied")))
 
 
 def ask_ai(prompt, box=None):
@@ -430,7 +451,7 @@ def ask_ai(prompt, box=None):
                 break
             tries += 1
             try:
-                text = _run(genai.Client(api_key=key), name, prompt, box)
+                text = _run(genai.Client(api_key=key), name, prompt, box, kid)
             except Exception as exc:  # noqa: BLE001
                 last_err = exc
                 if _retryable(exc):
@@ -451,8 +472,11 @@ def ask_ai(prompt, box=None):
         now = time.time()
         waits = [t - now for kid_name, t in _blocked().items() if t > now]
         mins = max(round(min(waits) / 60), 1) if waits else 1
-        st.error("سهمیهٔ رایگان همهٔ مدل‌ها و کلیدها فعلاً تمام شده است. "
+        st.error("همهٔ ترکیب‌های مدل و کلید فعلاً کنار گذاشته شده‌اند. "
                  f"نزدیک‌ترین ترکیب حدود {fa(mins)} دقیقهٔ دیگر آزاد می‌شود.")
+        with st.expander("جزئیات (دلیل کنار رفتن هر مدل)"):
+            for k, why in list(_reasons().items())[-8:]:
+                st.code(f"{k}\n{why}", language=None)
         return None
     st.error("هیچ ترکیبی پاسخ نداد. امتحان‌شده: " + "، ".join(skipped)
              + f"\n\nآخرین خطا: {str(last_err)[:300]}")
@@ -643,6 +667,7 @@ with st.sidebar:
             st.caption(f"{fa(n_blocked)} مدل موقتاً به سقف رسیده‌اند")
         if st.button("🔄 بازنشانی فهرست مدل‌ها"):
             _blocked().clear()
+            _reasons().clear()
             _list_models.clear()
             st.rerun()
 
