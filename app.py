@@ -121,7 +121,13 @@ button[data-testid="stBaseButton-primary"] {
     display: flex; align-items: center; justify-content: center;
     background: linear-gradient(135deg, #312e81, #6d28d9);
 }
-.chip { font-size: .7rem; padding: 2px 8px; border-radius: 99px; margin-right: 6px; font-weight: 600; }
+[data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="select"] > div {
+    background: rgba(255,255,255,.06) !important;
+}
+[data-baseweb="input"] input, [data-baseweb="base-input"] input, textarea {
+    color: #fff !important; -webkit-text-fill-color: #fff;
+}
+.chip { display: inline-block; white-space: nowrap; font-size: .7rem; padding: 2px 8px; border-radius: 99px; margin-right: 6px; font-weight: 600; }
 .chip-pending { background: rgba(148,163,184,.2); color: #cbd5e1; }
 .chip-review { background: rgba(99,102,241,.25); color: #c7d2fe; }
 .chip-done { background: rgba(34,197,94,.2); color: #86efac; }
@@ -258,16 +264,36 @@ init_state()
 # ---------------------------------------------------------------------------
 # هوش مصنوعی (Gemini)
 # ---------------------------------------------------------------------------
+def _auto_model():
+    """اولین مدل flash مناسب را از فهرست مدل‌های حساب شما پیدا می‌کند."""
+    names = [m.name for m in genai.list_models()
+             if "generateContent" in (getattr(m, "supported_generation_methods", None) or [])]
+    skip = ("lite", "image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics", "gemma")
+    flash = sorted((n for n in names if "flash" in n and not any(x in n for x in skip)), reverse=True)
+    return (flash or names or [None])[0]
+
+
 def ask_ai(prompt):
-    key = st.session_state.get("api_key", "")
+    ss = st.session_state
+    key = ss.get("api_key", "")
     if not key:
         st.error("لطفاً کلید Gemini را در منوی کناری وارد کنید.")
         return None
+    genai.configure(api_key=key)
+    name = (ss.get("model_name") or "").strip() or ss.get("auto_model") or "gemini-flash-latest"
     try:
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel(st.session_state.get("model_name") or "gemini-2.5-flash")
-        return model.generate_content(prompt).text
+        return genai.GenerativeModel(name).generate_content(prompt).text
     except Exception as exc:  # noqa: BLE001
+        msg = str(exc).lower()
+        if any(w in msg for w in ("404", "no longer available", "not found", "not supported")):
+            try:
+                auto = _auto_model()
+                if auto and auto.replace("models/", "") != name.replace("models/", ""):
+                    ss["auto_model"] = auto
+                    st.info(f"مدل «{name}» در دسترس نبود؛ با «{auto}» انجام شد.")
+                    return genai.GenerativeModel(auto).generate_content(prompt).text
+            except Exception as exc2:  # noqa: BLE001
+                exc = exc2
         st.error(f"خطا در ارتباط با Gemini: {exc}")
         return None
 
@@ -455,7 +481,7 @@ with st.sidebar:
     st.markdown("---")
     with st.expander("🔑 Gemini"):
         st.text_input("کلید API", type="password", key="api_key")
-        st.text_input("نام مدل", value="gemini-2.5-flash", key="model_name")
+        st.text_input("نام مدل (اختیاری)", key="model_name", placeholder="خالی = انتخاب خودکار")
 
 page = st.session_state.page
 
