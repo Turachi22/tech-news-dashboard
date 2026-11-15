@@ -2,7 +2,9 @@ import calendar
 import copy
 import datetime as dt
 import html
+import re
 import time
+from zoneinfo import ZoneInfo
 
 from google import genai
 from google.genai import types
@@ -283,13 +285,47 @@ DEEP_PROMPT = RESEARCH_RULES + (
 )
 
 
-def _auto_model(client):
-    """مناسب‌ترین مدل flash را از فهرست مدل‌های حساب شما پیدا می‌کند."""
-    names = [m.name for m in client.models.list()
-             if "generateContent" in (getattr(m, "supported_actions", None) or [])]
-    skip = ("image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics", "gemma", "lite")
-    flash = sorted((n for n in names if "flash" in n and not any(x in n for x in skip)), reverse=True)
-    return (flash or names or [None])[0]
+@st.cache_resource
+def _blocked():
+    """مدل‌هایی که موقتاً (به‌خاطر سهمیه) کنار گذاشته شده‌اند: نام مدل -> زمان آزاد شدن."""
+    return {}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _list_models(api_key):
+    client = genai.Client(api_key=api_key)
+    return [m.name for m in client.models.list()
+            if "generateContent" in (getattr(m, "supported_actions", None) or [])]
+
+
+def _version(name):
+    m = re.search(r"gemini-(\d+(?:\.\d+)?)", name)
+    return float(m.group(1)) if m else 0.0
+
+
+def _candidates(api_key):
+    """مدل‌های flash متنی، از جدیدترین نسخه به قدیمی‌ترین."""
+    skip = ("image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics",
+            "gemma", "omni", "computer", "native", "pro")
+    flash = [n for n in _list_models(api_key) if "flash" in n and not any(x in n for x in skip)]
+    flash.sort(key=lambda n: ("latest" in n, -_version(n), "lite" in n, "preview" in n, n))
+    return flash
+
+
+def _block(name, exc):
+    """بر اساس نوع خطا تعیین می‌کند این مدل تا چه زمانی کنار بماند."""
+    low = str(exc).lower()
+    if "limit: 0" in low or any(w in low for w in ("404", "no longer available", "not found")):
+        secs = 24 * 3600  # در پلن رایگان وجود ندارد
+    elif "perday" in low.replace(" ", "") or "per day" in low:
+        tz = ZoneInfo("America/Los_Angeles")  # سهمیهٔ روزانه گوگل نیمه‌شب وقت لس‌آنجلس ریست می‌شود
+        now = dt.datetime.now(tz)
+        nxt = (now + dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        secs = (nxt - now).total_seconds()
+    else:
+        m = re.search(r"retry in ([\d.]+)s", low)
+        secs = min(float(m.group(1)) if m else 60, 300) + 3  # سقف دقیقه‌ای
+    _blocked()[name] = time.time() + secs
 
 
 def _stream(client, model_name, prompt, box, use_search=True):
@@ -316,41 +352,71 @@ def _stream(client, model_name, prompt, box, use_search=True):
     return text
 
 
+def _run(client, name, prompt, box):
+    """با جست‌وجو اجرا می‌کند؛ اگر ابزار جست‌وجو رد شد، بدون آن."""
+    try:
+        return _stream(client, name, prompt, box)
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc).lower()
+        if any(w in msg for w in ("google_search", "grounding")):
+            st.warning("جست‌وجوی وب برای این کلید/مدل فعال نیست؛ پاسخ بدون لینک منبع تولید شد.")
+            return _stream(client, name, prompt, box, use_search=False)
+        raise
+
+
+def _retryable(exc):
+    msg = str(exc).lower()
+    return any(w in msg for w in ("404", "no longer available", "not found", "not supported",
+                                  "429", "resource_exhausted", "quota"))
+
+
 def ask_ai(prompt, box=None):
-    """پاسخ را زنده نشان می‌دهد و متن کامل (همراه لینک منابع واقعی) را برمی‌گرداند."""
+    """از جدیدترین مدل رایگان شروع می‌کند؛ اگر سهمیه تمام شد یا مدل کار نکرد، خودکار سراغ بعدی می‌رود."""
     ss = st.session_state
     key = ss.get("api_key", "")
     if not key:
         st.error("لطفاً کلید Gemini را در منوی کناری وارد کنید.")
         return None
     box = box if box is not None else st.empty()
-    client = genai.Client(api_key=key)
-    name = (ss.get("model_name") or "").strip() or ss.get("auto_model") or "gemini-flash-latest"
-    text, err = None, None
     try:
-        text = _stream(client, name, prompt, box)
+        all_models = _candidates(key)
     except Exception as exc:  # noqa: BLE001
-        err = exc
-        msg = str(exc).lower()
+        st.error(f"دریافت فهرست مدل‌ها ناموفق بود (کلید را بررسی کنید): {str(exc)[:300]}")
+        return None
+
+    blocked, now = _blocked(), time.time()
+    cands = [n for n in all_models if blocked.get(n, 0) <= now]
+    if not cands:
+        waits = [blocked[n] - now for n in all_models if n in blocked]
+        mins = round(min(waits) / 60) if waits else 0
+        st.error("سهمیهٔ همهٔ مدل‌های رایگان فعلاً تمام شده است. "
+                 f"نزدیک‌ترین مدل حدود {fa(max(mins, 1))} دقیقهٔ دیگر آزاد می‌شود.")
+        return None
+
+    client = genai.Client(api_key=key)
+    skipped, last_err = [], None
+    for name in cands[:10]:
         try:
-            if any(w in msg for w in ("404", "no longer available", "not found", "not supported")):
-                auto = _auto_model(client)
-                if auto and auto.replace("models/", "") != name.replace("models/", ""):
-                    ss["auto_model"] = auto
-                    st.info(f"مدل «{name}» در دسترس نبود؛ با «{auto}» انجام شد.")
-                    text, err = _stream(client, auto, prompt, box), None
-            elif any(w in msg for w in ("google_search", "grounding", "tool")):
-                st.warning("جست‌وجوی وب برای این کلید/مدل فعال نیست؛ پاسخ بدون لینک منبع تولید شد.")
-                text, err = _stream(client, name, prompt, box, use_search=False), None
-        except Exception as exc2:  # noqa: BLE001
-            err = exc2
-    if text is None:
-        st.error(f"خطا در ارتباط با Gemini: {err}")
-        return None
-    if not text.strip():
-        st.error("پاسخی دریافت نشد. نام مدل را در منوی کناری عوض کنید.")
-        return None
-    return text
+            text = _run(client, name, prompt, box)
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            if _retryable(exc):
+                _block(name, exc)
+                skipped.append(name.replace("models/", ""))
+                continue
+            st.error(f"خطا در ارتباط با Gemini: {str(exc)[:400]}")
+            return None
+        if not text.strip():
+            skipped.append(name.replace("models/", ""))
+            continue
+        ss["active_model"] = name
+        if skipped:
+            st.info(f"از {'، '.join(skipped)} عبور شد؛ پاسخ با «{name.replace('models/', '')}» آمد.")
+        return text
+
+    st.error("هیچ مدلی پاسخ نداد. مدل‌های امتحان‌شده: " + "، ".join(skipped)
+             + f"\n\nآخرین خطا: {str(last_err)[:300]}")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +594,16 @@ with st.sidebar:
     st.markdown("---")
     with st.expander("🔑 Gemini"):
         st.text_input("کلید API", type="password", key="api_key")
-        st.text_input("نام مدل (اختیاری)", key="model_name", placeholder="خالی = انتخاب خودکار")
+        active = st.session_state.get("active_model")
+        if active:
+            st.caption(f"مدل فعال: {active.replace('models/', '')}")
+        n_blocked = sum(1 for t in _blocked().values() if t > time.time())
+        if n_blocked:
+            st.caption(f"{fa(n_blocked)} مدل موقتاً به سقف رسیده‌اند")
+        if st.button("🔄 بازنشانی فهرست مدل‌ها"):
+            _blocked().clear()
+            _list_models.clear()
+            st.rerun()
 
 page = st.session_state.page
 
