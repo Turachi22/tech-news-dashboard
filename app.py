@@ -63,7 +63,6 @@ input, textarea { direction: rtl; text-align: right; }
     justify-content: center;
     cursor: pointer;
 }
-[data-testid="stSidebar"] [role="radiogroup"] label > div:first-of-type { display: none; }
 [data-testid="stSidebar"] [role="radiogroup"] label:hover { background: rgba(255,255,255,.05); }
 [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
     background: rgba(139,92,246,.18);
@@ -706,7 +705,12 @@ def diagnose():
 # ---------------------------------------------------------------------------
 with st.sidebar:
     H('<div class="brand">ساده</div>')
-    st.radio("منو", PAGES, key="page", label_visibility="collapsed")
+    st.session_state.setdefault("page", PAGES[0])
+    for i, label in enumerate(PAGES):
+        is_active = st.session_state.page == label
+        if st.button(label, key=f"nav_{i}", type="primary" if is_active else "secondary"):
+            st.session_state.page = label
+            st.rerun()
     st.markdown("---")
     with st.expander("🔑 Gemini"):
         st.text_input("کلید اول", type="password", key="api_key")
