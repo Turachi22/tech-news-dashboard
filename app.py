@@ -31,20 +31,24 @@ html, body, .stApp, .stApp p, .stApp label, .stApp button, .stApp input,
 header[data-testid="stHeader"] { background: transparent; }
 .block-container { padding-top: 2rem; max-width: 1250px; }
 
-/* سایدبار سمت راست */
-[data-testid="stAppViewContainer"] { flex-direction: row-reverse; }
+/* راست‌چین */
 [data-testid="stMain"], .main { direction: rtl; text-align: right; }
 [data-testid="stHorizontalBlock"] { direction: rtl; }
 input, textarea { direction: rtl; text-align: right; }
+.stApp { overflow-x: hidden; }
 
+/* سایدبار */
 [data-testid="stSidebar"] {
     background: #0d1020;
     border-left: 1px solid rgba(255,255,255,.08);
     border-right: none;
-    width: 165px !important;
-    min-width: 165px !important;
-    max-width: 165px !important;
     direction: rtl;
+}
+@media (min-width: 768px) {
+    [data-testid="stAppViewContainer"] { flex-direction: row-reverse; }
+    [data-testid="stSidebar"] {
+        width: 165px !important; min-width: 165px !important; max-width: 165px !important;
+    }
 }
 [data-testid="stSidebar"] [role="radiogroup"] { gap: 6px; }
 [data-testid="stSidebar"] [role="radiogroup"] label {
@@ -151,6 +155,37 @@ button[data-testid="stBaseButton-primary"] {
     position: absolute; bottom: 3px; left: 50%; width: 5px; height: 5px;
     margin-left: -2px; border-radius: 50%; background: #f0abfc;
 }
+
+/* چیدمان کلی: ستون اول سمت چپ؛ در موبایل زیر هم و به همین ترتیب */
+[class*="st-key-layout"] [data-testid="stHorizontalBlock"] { direction: ltr; }
+[class*="st-key-layout"] [data-testid="stColumn"],
+[class*="st-key-layout"] [data-testid="column"] { direction: rtl; }
+[class*="st-key-layout"] [data-testid="stColumn"] [data-testid="stHorizontalBlock"],
+[class*="st-key-layout"] [data-testid="column"] [data-testid="stHorizontalBlock"] { direction: rtl; }
+
+/* ردیف‌های دکمه: در موبایل هم کنار هم بمانند */
+[class*="st-key-keep"] [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: .4rem; }
+[class*="st-key-keep"] [data-testid="stColumn"],
+[class*="st-key-keep"] [data-testid="column"] {
+    min-width: 0 !important; width: auto !important; flex: 1 1 0 !important;
+}
+
+.news-head { display: flex; gap: 12px; align-items: center; }
+.news-head .avatar { flex: 0 0 auto; }
+
+@media (max-width: 640px) {
+    .block-container { padding: 1rem .7rem 3rem; }
+    .page-title { font-size: 1.35rem; }
+    .page-sub { font-size: .85rem; margin-bottom: 14px; }
+    .avatar { width: 48px; height: 48px; font-size: 1.5rem; border-radius: 12px; }
+    .stepper { gap: 4px; }
+    .step { font-size: .72rem; padding: 7px 2px; }
+    .step b { display: block; margin: 0; font-size: .95rem; }
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    .donut { margin: 0 auto; }
+    .stButton > button { font-size: .8rem; padding: .35rem .2rem; }
+    .cell { padding: 5px 0; font-size: .78rem; }
+}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -246,21 +281,23 @@ def header(title, sub):
 
 def news_item(idx, item):
     with st.container(border=True):
-        c_text, c_icon = st.columns([5, 1])
-        with c_text:
-            H(f'<div class="news-title">{esc(item["title"])} {chip(item["status"])}</div>'
-              f'<div class="news-desc">{esc(item["desc"])}</div>')
-        with c_icon:
-            H(f'<div class="avatar">{item["icon"]}</div>')
+        H('<div class="news-head">'
+          f'<div class="avatar">{item["icon"]}</div>'
+          f'<div><div class="news-title">{esc(item["title"])} {chip(item["status"])}</div>'
+          f'<div class="news-desc">{esc(item["desc"])}</div></div></div>')
 
-        b_ok, b_no, b_ai, _ = st.columns([1, 1, 1.5, 1.5])
-        if b_ok.button("➕ تأیید", key=f"app_{idx}", type="primary"):
+        with st.container(key=f"keep_news_{idx}"):
+            b_ok, b_no, b_ai = st.columns(3)
+            ok = b_ok.button("➕ تأیید", key=f"app_{idx}", type="primary")
+            no = b_no.button("✖ رد", key=f"rej_{idx}")
+            ai = b_ai.button("🔍 بررسی", key=f"rev_{idx}")
+        if ok:
             item["status"] = "Approved"
             st.rerun()
-        if b_no.button("✖ رد", key=f"rej_{idx}"):
+        if no:
             item["status"] = "Rejected"
             st.rerun()
-        if b_ai.button("🔍 بررسی هوشمند", key=f"rev_{idx}"):
+        if ai:
             with st.spinner("در حال تهیهٔ توضیح و منابع..."):
                 text = ask_ai(
                     "برای خبر زیر، یک توضیح ساده در سطح دانش‌آموز کلاس ششم به زبان فارسی بنویس "
@@ -306,14 +343,17 @@ def render_ideas():
         for idx, topic in enumerate(ss.deep_topics):
             with st.container(border=True):
                 H(f'<div class="news-title">{esc(topic["title"])} {chip(topic["status"])}</div>')
-                b_cal, b_scn = st.columns(2)
-                if b_cal.button("📅 افزودن به تقویم", key=f"cal_{idx}"):
+                with st.container(key=f"keep_idea_{idx}"):
+                    b_cal, b_scn = st.columns(2)
+                    add_cal = b_cal.button("📅 تقویم", key=f"cal_{idx}")
+                    add_scn = b_scn.button("🎬 سناریو", key=f"scn_{idx}")
+                if add_cal:
                     ss.events = [e for e in ss.events if e["title"] != topic["title"]]
                     ss.events.append({"date": pub.isoformat(), "title": topic["title"]})
                     topic["status"] = "Approved"
                     ss.cal_year, ss.cal_month = pub.year, pub.month
                     st.rerun()
-                if b_scn.button("🎬 سناریو", key=f"scn_{idx}"):
+                if add_scn:
                     with st.spinner("در حال آماده‌سازی زوایای روایت..."):
                         text = ask_ai(
                             "برای یک مینی‌مستند تکنولوژی به زبان فارسی، اطلاعات پس‌زمینه، "
@@ -371,13 +411,16 @@ def render_calendar():
     today_iso = dt.date.today().isoformat()
     with st.container(border=True):
         H('<div class="card-title">تقویم محتوا</div>')
-        c_prev, c_mid, c_next = st.columns([1, 3, 1])
-        if c_prev.button("→", key="cal_prev"):
+        with st.container(key="keep_cal_nav"):
+            c_prev, c_mid, c_next = st.columns(3)
+            prev = c_prev.button("→", key="cal_prev")
+            c_mid.markdown(f'<div style="text-align:center;font-weight:700;padding-top:.4rem">'
+                           f'{MONTHS_FA[m - 1]} {fa(y)}</div>', unsafe_allow_html=True)
+            nxt = c_next.button("←", key="cal_next")
+        if prev:
             ss.cal_year, ss.cal_month = (y - 1, 12) if m == 1 else (y, m - 1)
             st.rerun()
-        c_mid.markdown(f'<div style="text-align:center;font-weight:700">{MONTHS_FA[m - 1]} {fa(y)}</div>',
-                       unsafe_allow_html=True)
-        if c_next.button("←", key="cal_next"):
+        if nxt:
             ss.cal_year, ss.cal_month = (y + 1, 1) if m == 12 else (y, m + 1)
             st.rerun()
 
@@ -398,10 +441,7 @@ def render_calendar():
         month_prefix = f"{y:04d}-{m:02d}"
         month_events = [e for e in ss.events if e["date"].startswith(month_prefix)]
         for i, ev in enumerate(sorted(month_events, key=lambda e: e["date"])):
-            c_t, c_x = st.columns([5, 1])
-            c_t.markdown(f'<div class="muted">{fa(ev["date"])} — {esc(ev["title"])}</div>',
-                         unsafe_allow_html=True)
-            if c_x.button("🗑", key=f"del_{i}"):
+            if st.button(f"🗑 {fa(ev['date'])} — {ev['title']}", key=f"del_{i}"):
                 ss.events.remove(ev)
                 st.rerun()
 
@@ -425,16 +465,18 @@ page = st.session_state.page
 if page == PAGES[0]:
     header("داشبورد شخصی تولید محتوای تکنولوژی 🚀",
            "مدیریت هوشمند اخبار هفتگی و بخش دوم (دیپ‌دایو)")
-    col_ideas, col_flow = st.columns([1, 2], gap="medium")  # ستون اول = سمت راست
-    with col_ideas:
-        render_ideas()
-    with col_flow:
-        render_workflow()
-    col_cal, col_stats = st.columns([1, 1.6], gap="medium")
-    with col_cal:
-        render_calendar()
-    with col_stats:
-        render_stats()
+    with st.container(key="layout_top"):
+        col_flow, col_ideas = st.columns([2, 1], gap="medium")  # ستون اول = سمت چپ (و در موبایل بالاتر)
+        with col_flow:
+            render_workflow()
+        with col_ideas:
+            render_ideas()
+    with st.container(key="layout_bottom"):
+        col_stats, col_cal = st.columns([1.6, 1], gap="medium")
+        with col_stats:
+            render_stats()
+        with col_cal:
+            render_calendar()
 
 elif page == PAGES[1]:
     header("اخبار داغ هفته", "بررسی، تأیید یا ردِ خبرهای پیشنهادی")
