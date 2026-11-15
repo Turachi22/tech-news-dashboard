@@ -2,10 +2,44 @@ import streamlit as st
 import google.generativeai as genai
 import pandas as pd
 
-# تنظیمات صفحه با طراحی مدرن
+# تنظیمات پیشرفته صفحه
 st.set_page_config(page_title="داشبورد حرفه‌ای تولید محتوا", layout="wide", page_icon="🚀")
 
-# سایدبار حرفه‌ای (مشابه پیشنهاد ۲)
+# تزریق استایل‌های گرافیکی و مدرن (CSS سفارشی)
+st.markdown("""
+    <style>
+    .stApp {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+        color: #f8fafc;
+    }
+    .css-1d391kg, [data-testid="stSidebar"] {
+        background-color: #111827;
+        border-right: 1px solid #374151;
+    }
+    div.stButton > button {
+        background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        font-weight: bold;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    div.stButton > button:hover {
+        background: linear-gradient(90deg, #4f46e5 0%, #9333ea 100%);
+        color: #ffffff;
+    }
+    .metric-card {
+        background-color: #1f2937;
+        border: 1px solid #374151;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# سایدبار حرفه‌ای
 st.sidebar.title("🚀 منوی مدیریت")
 menu = st.sidebar.radio("بخش‌ها", ["🏠 خانه و نمای کلی", "📌 اخبار داغ هفته", "💡 موضوعات دیپ‌دایو", "📊 آمار و تحلیل", "⚙️ تنظیمات"])
 
@@ -22,7 +56,6 @@ if menu == "🏠 خانه و نمای کلی":
     st.title("🚀 داشبورد پیشرفته تولید محتوای تکنولوژی")
     st.markdown("مدیریت هوشمند جریان کاری، اخبار هفتگی و بخش دوم (دیپ‌دایو)")
     
-    # کارت‌های آماری کلیدی
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric(label="محتوا در صف", value="10", delta="+2")
@@ -66,7 +99,7 @@ elif menu == "📌 اخبار داغ هفته":
             with col4:
                 if st.button("🔍 بررسی هوشمند", key=f"rev_{idx}"):
                     if not model:
-                        st.error("لطفاً کلید Gemini را در سایدبار وارد کنید!")
+                        st.error("لطفاً کلید Gemini را وارد کنید!")
                     else:
                         with st.spinner("در حال استخراج منابع و متن..."):
                             detail_prompt = f"Write a simple sixth-grader level explanation and source links for: {news['title']}"
