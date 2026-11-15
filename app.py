@@ -306,15 +306,29 @@ def _version(name):
 def _candidates(api_key):
     """مدل‌های flash متنی، از جدیدترین نسخه به قدیمی‌ترین."""
     skip = ("image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics",
-            "gemma", "omni", "computer", "native", "pro")
-    flash = [n for n in _list_models(api_key) if "flash" in n and not any(x in n for x in skip)]
-    flash.sort(key=lambda n: ("latest" in n, -_version(n), "lite" in n, "preview" in n, n))
+            "omni", "computer", "native", "pro")
+    flash = [n for n in _list_models(api_key)
+             if ("flash" in n or "gemma" in n) and not any(x in n for x in skip)]
+    flash.sort(key=lambda n: ("gemma" in n, "latest" in n, -_version(n), "lite" in n, "preview" in n, n))
     return flash
 
 
 @st.cache_resource
 def _reasons():
     return {}
+
+
+def _brief(exc):
+    """خلاصهٔ خطا: کد، نام سهمیه‌ای که تمام شده و سقف آن."""
+    t = str(exc)
+    ids = list(dict.fromkeys(re.findall(r"quotaId['\"]?: ?['\"]?([\w-]+)", t)))
+    lim = list(dict.fromkeys(re.findall(r"limit: (\d+)", t)))
+    out = t[:70].replace("\n", " ")
+    if ids:
+        out += " | " + ", ".join(ids)
+    if lim:
+        out += " | limit=" + ",".join(lim)
+    return out
 
 
 def _code(low, c):
@@ -353,7 +367,7 @@ def _is_blocked(kid, name):
 def _block(kid, name, exc):
     """بر اساس نوع خطا تعیین می‌کند این (کلید، مدل) تا چه زمانی کنار بماند."""
     low = str(exc).lower()
-    _reasons()[f"{kid}:{name}"] = str(exc)[:220]
+    _reasons()[f"{kid}:{name}"] = _brief(exc)
     if any(w in low for w in ("api_key_invalid", "api key not valid", "permission_denied")) or _code(low, "403"):
         _blocked()[f"{kid}:*"] = time.time() + 3600  # کلید نامعتبر
         return
@@ -399,12 +413,14 @@ def _stream(client, model_name, prompt, box, use_search=True):
 def _run(client, name, prompt, box, kid=""):
     """با جست‌وجو اجرا می‌کند؛ اگر جست‌وجو/سهمیهٔ آن مشکل داشت، همان مدل را بدون جست‌وجو امتحان می‌کند."""
     skey = f"{kid}:{name}:search"
-    if _blocked().get(skey, 0) > time.time():
+    if "gemma" in name or _blocked().get(skey, 0) > time.time():
         return _stream(client, name, prompt, box, use_search=False)
     try:
         return _stream(client, name, prompt, box)
     except Exception as exc:  # noqa: BLE001
         low = str(exc).lower()
+        if "limit: 0" in low and not any(w in low for w in ("grounding", "search")):
+            raise  # خود مدل در پلن رایگان نیست؛ امتحان بدون جست‌وجو بی‌فایده است
         if any(w in low for w in ("google_search", "grounding")) or _is_quota(low):
             text = _stream(client, name, prompt, box, use_search=False)  # اگر این هم خطا داد، بالا می‌رود
             _blocked()[skey] = time.time() + 3600
@@ -447,7 +463,7 @@ def ask_ai(prompt, box=None):
             kid = key[-4:]
             if _is_blocked(kid, name):
                 continue
-            if tries >= 16:
+            if tries >= 60:
                 break
             tries += 1
             try:
@@ -478,8 +494,10 @@ def ask_ai(prompt, box=None):
             for k, why in list(_reasons().items())[-8:]:
                 st.code(f"{k}\n{why}", language=None)
         return None
-    st.error("هیچ ترکیبی پاسخ نداد. امتحان‌شده: " + "، ".join(skipped)
-             + f"\n\nآخرین خطا: {str(last_err)[:300]}")
+    st.error("هیچ ترکیبی پاسخ نداد. بخش «تنظیمات ← تست کلیدها و مدل‌ها» دلیل دقیق هر مدل را نشان می‌دهد.")
+    with st.expander("جزئیات (دلیل کنار رفتن هر مدل)"):
+        for k, why in list(_reasons().items())[-12:]:
+            st.code(f"{k}\n{why}", language=None)
     return None
 
 
@@ -649,6 +667,35 @@ def render_calendar():
                 st.rerun()
 
 
+def diagnose():
+    """هر مدل را با یک درخواست بسیار کوتاه (بدون جست‌وجو) تست می‌کند و دلیل شکست را نشان می‌دهد."""
+    _blocked().clear()
+    _reasons().clear()
+    keys = _get_keys()
+    if not keys:
+        st.error("ابتدا کلید را وارد کنید.")
+        return
+    for i, k in enumerate(keys, 1):
+        st.markdown(f"**کلید {fa(i)}** (…{k[-4:]})")
+        try:
+            models = _candidates(k)[:30]
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"دریافت فهرست مدل‌ها ناموفق بود: {_brief(exc)}")
+            continue
+        client = genai.Client(api_key=k)
+        rows, bar = [], st.progress(0)
+        for j, m in enumerate(models, 1):
+            short = m.replace("models/", "")
+            try:
+                client.models.generate_content(model=m, contents="Reply with: OK")
+                rows.append(f"✅ {short}")
+            except Exception as exc:  # noqa: BLE001
+                rows.append(f"❌ {short} — {_brief(exc)}")
+            bar.progress(j / max(len(models), 1))
+        bar.empty()
+        st.code("\n".join(rows) or "مدلی پیدا نشد", language=None)
+
+
 # ---------------------------------------------------------------------------
 # سایدبار
 # ---------------------------------------------------------------------------
@@ -722,6 +769,8 @@ else:
     with st.container(border=True):
         st.text_input("نام کانال یوتیوب", value="کانال ساده")
         st.selectbox("وضعیت بروزرسانی خودکار", ["فعال", "غیرفعال"])
+        if st.button("🧪 تست کلیدها و مدل‌ها"):
+            diagnose()
         if st.button("بازنشانی همهٔ داده‌ها"):
             for k in ("news_list", "deep_topics", "events"):
                 st.session_state.pop(k, None)
