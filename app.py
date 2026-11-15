@@ -304,12 +304,8 @@ def _version(name):
 
 
 def _candidates(api_key):
-    """مدل‌های flash متنی، از جدیدترین نسخه به قدیمی‌ترین."""
-    skip = ("image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics",
-            "gemma", "omni", "computer", "native", "pro")
-    flash = [n for n in _list_models(api_key) if "flash" in n and not any(x in n for x in skip)]
-    flash.sort(key=lambda n: ("latest" in n, -_version(n), "lite" in n, "preview" in n, n))
-    return flash
+  # استفاده مستقیم از مدل‌های پایدار و معتبر برای جلوگیری از خطای Not Found
+  return ["gemini-1.5-flash", "gemini-2.5-flash"]
 
 
 def _block(name, exc):
