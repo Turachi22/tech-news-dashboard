@@ -457,6 +457,7 @@ def ask_ai(prompt, box=None):
         return None
 
     skipped, last_err, tries = [], None, 0
+    status = st.status("در حال جست‌وجو و تحقیق...", expanded=False)
     for name in all_models:
         short = name.replace("models/", "")
         for idx, key in enumerate(keys):
@@ -466,6 +467,7 @@ def ask_ai(prompt, box=None):
             if tries >= 60:
                 break
             tries += 1
+            status.update(label=f"در حال جست‌وجو و تحقیق با «{short}» (کلید {fa(idx + 1)})...", state="running")
             try:
                 text = _run(genai.Client(api_key=key), name, prompt, box, kid)
             except Exception as exc:  # noqa: BLE001
@@ -474,12 +476,14 @@ def ask_ai(prompt, box=None):
                     _block(kid, name, exc)
                     skipped.append(f"{short} (کلید {fa(idx + 1)})")
                     continue
-                st.error(f"خطا در ارتباط با Gemini: {str(exc)[:400]}")
+                status.update(label="خطا در ارتباط با Gemini", state="error")
+                st.error(f"خطا در ارتباط با Gemini: {_brief(exc)}")
                 return None
             if not text.strip():
                 skipped.append(f"{short} (کلید {fa(idx + 1)})")
                 continue
             ss["active_model"] = f"{short} · کلید {fa(idx + 1)}"
+            status.update(label=f"تحقیق کامل شد · {short} · کلید {fa(idx + 1)}", state="complete")
             if skipped:
                 st.info(f"از {'، '.join(skipped)} عبور شد؛ پاسخ با «{short}» و کلید {fa(idx + 1)} آمد.")
             return text
@@ -494,6 +498,7 @@ def ask_ai(prompt, box=None):
             for k, why in list(_reasons().items())[-8:]:
                 st.code(f"{k}\n{why}", language=None)
         return None
+    status.update(label="هیچ مدلی پاسخ نداد", state="error")
     st.error("هیچ ترکیبی پاسخ نداد. بخش «تنظیمات ← تست کلیدها و مدل‌ها» دلیل دقیق هر مدل را نشان می‌دهد.")
     with st.expander("جزئیات (دلیل کنار رفتن هر مدل)"):
         for k, why in list(_reasons().items())[-12:]:
