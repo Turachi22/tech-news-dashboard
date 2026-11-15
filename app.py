@@ -166,14 +166,14 @@ button[data-testid="stBaseButton-primary"] {
     margin-left: -2px; border-radius: 50%; background: #f0abfc;
 }
 
-/* چیدمان کلی: ستون اول سمت چپ؛ در موبایل زیر هم و به همین ترتیب */
+/* چیدمان کلی */
 [class*="st-key-layout"] [data-testid="stHorizontalBlock"] { direction: ltr; }
 [class*="st-key-layout"] [data-testid="stColumn"],
 [class*="st-key-layout"] [data-testid="column"] { direction: rtl; }
 [class*="st-key-layout"] [data-testid="stColumn"] [data-testid="stHorizontalBlock"],
 [class*="st-key-layout"] [data-testid="column"] [data-testid="stHorizontalBlock"] { direction: rtl; }
 
-/* ردیف‌های دکمه: در موبایل هم کنار هم بمانند */
+/* ردیف‌های دکمه */
 [class*="st-key-keep"] [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: .4rem; }
 [class*="st-key-keep"] [data-testid="stColumn"],
 [class*="st-key-keep"] [data-testid="column"] {
@@ -206,7 +206,7 @@ st.markdown(CSS, unsafe_allow_html=True)
 FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 MONTHS_FA = ["ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن",
              "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر"]
-WEEKDAYS_FA = ["ش", "ی", "د", "س", "چ", "پ", "ج"]  # هفته از شنبه
+WEEKDAYS_FA = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
 STATUS_FA = {"Pending": "در صف", "Reviewing": "در حال بررسی",
              "Approved": "تأیید شده", "Rejected": "رد شده"}
 STATUS_CHIP = {"Pending": "chip-pending", "Reviewing": "chip-review",
@@ -264,9 +264,8 @@ def init_state():
 
 init_state()
 
-
 # ---------------------------------------------------------------------------
-# هوش مصنوعی (Gemini)
+# هوش مصنوعی (Gemini) با پشتیبانی از چند کلید و Failover خودکار
 # ---------------------------------------------------------------------------
 RESEARCH_RULES = (
     "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب تحقیق کن و پاسخ را به زبان فارسی، "
@@ -287,7 +286,6 @@ DEEP_PROMPT = RESEARCH_RULES + (
 
 @st.cache_resource
 def _blocked():
-    """مدل‌هایی که موقتاً (به‌خاطر سهمیه) کنار گذاشته شده‌اند: نام مدل -> زمان آزاد شدن."""
     return {}
 
 
@@ -298,29 +296,30 @@ def _list_models(api_key):
             if "generateContent" in (getattr(m, "supported_actions", None) or [])]
 
 
-def _version(name):
-    m = re.search(r"gemini-(\d+(?:\.\d+)?)", name)
-    return float(m.group(1)) if m else 0.0
-
-
 def _candidates(api_key):
-  # استفاده مستقیم از مدل‌های پایدار و معتبر برای جلوگیری از خطای Not Found
-  return ["gemini-1.5-flash", "gemini-2.5-flash"]
+    # استفاده از مدل‌های پایدار و معتبر فلش
+    try:
+        raw = _list_models(api_key)
+        flash = [n for n in raw if "flash" in n and "exp" not in n]
+        if flash:
+            return flash
+    except Exception:
+        pass
+    return ["gemini-1.5-flash", "gemini-2.5-flash"]
 
 
 def _block(name, exc):
-    """بر اساس نوع خطا تعیین می‌کند این مدل تا چه زمانی کنار بماند."""
     low = str(exc).lower()
     if "limit: 0" in low or any(w in low for w in ("404", "no longer available", "not found")):
-        secs = 24 * 3600  # در پلن رایگان وجود ندارد
+        secs = 24 * 3600
     elif "perday" in low.replace(" ", "") or "per day" in low:
-        tz = ZoneInfo("America/Los_Angeles")  # سهمیهٔ روزانه گوگل نیمه‌شب وقت لس‌آنجلس ریست می‌شود
+        tz = ZoneInfo("America/Los_Angeles")
         now = dt.datetime.now(tz)
         nxt = (now + dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         secs = (nxt - now).total_seconds()
     else:
         m = re.search(r"retry in ([\d.]+)s", low)
-        secs = min(float(m.group(1)) if m else 60, 300) + 3  # سقف دقیقه‌ای
+        secs = min(float(m.group(1)) if m else 60, 300) + 3
     _blocked()[name] = time.time() + secs
 
 
@@ -349,10 +348,9 @@ def _stream(client, model_name, prompt, box, use_search=True):
 
 
 def _run(client, name, prompt, box):
-    """با جست‌وجو اجرا می‌کند؛ اگر ابزار جست‌وجو رد شد، بدون آن."""
     try:
         return _stream(client, name, prompt, box)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         msg = str(exc).lower()
         if any(w in msg for w in ("google_search", "grounding")):
             st.warning("جست‌وجوی وب برای این کلید/مدل فعال نیست؛ پاسخ بدون لینک منبع تولید شد.")
@@ -367,51 +365,46 @@ def _retryable(exc):
 
 
 def ask_ai(prompt, box=None):
-    """از جدیدترین مدل رایگان شروع می‌کند؛ اگر سهمیه تمام شد یا مدل کار نکرد، خودکار سراغ بعدی می‌رود."""
-    ss = st.session_state
-    key = ss.get("api_key", "")
-    if not key:
-        st.error("لطفاً کلید Gemini را در منوی کناری وارد کنید.")
+    # پشتیبانی از چند کلید که با کاما (,) جدا شده‌اند
+    keys_input = st.session_state.get("api_key", "")
+    keys = [k.strip() for k in keys_input.split(",") if k.strip()]
+
+    if not keys:
+        st.error("لطفاً حداقل یک کلید Gemini در منوی کناری وارد کنید.")
         return None
+
     box = box if box is not None else st.empty()
-    try:
-        all_models = _candidates(key)
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"دریافت فهرست مدل‌ها ناموفق بود (کلید را بررسی کنید): {str(exc)[:300]}")
-        return None
-
     blocked, now = _blocked(), time.time()
-    cands = [n for n in all_models if blocked.get(n, 0) <= now]
-    if not cands:
-        waits = [blocked[n] - now for n in all_models if n in blocked]
-        mins = round(min(waits) / 60) if waits else 0
-        st.error("سهمیهٔ همهٔ مدل‌های رایگان فعلاً تمام شده است. "
-                 f"نزدیک‌ترین مدل حدود {fa(max(mins, 1))} دقیقهٔ دیگر آزاد می‌شود.")
-        return None
-
-    client = genai.Client(api_key=key)
     skipped, last_err = [], None
-    for name in cands[:10]:
-        try:
-            text = _run(client, name, prompt, box)
-        except Exception as exc:  # noqa: BLE001
-            last_err = exc
-            if _retryable(exc):
-                _block(name, exc)
-                skipped.append(name.replace("models/", ""))
-                continue
-            st.error(f"خطا در ارتباط با Gemini: {str(exc)[:400]}")
-            return None
-        if not text.strip():
-            skipped.append(name.replace("models/", ""))
-            continue
-        ss["active_model"] = name
-        if skipped:
-            st.info(f"از {'، '.join(skipped)} عبور شد؛ پاسخ با «{name.replace('models/', '')}» آمد.")
-        return text
 
-    st.error("هیچ مدلی پاسخ نداد. مدل‌های امتحان‌شده: " + "، ".join(skipped)
-             + f"\n\nآخرین خطا: {str(last_err)[:300]}")
+    # بررسی تک‌تک کلیدهای واردشده
+    for kidx, key in enumerate(keys):
+        try:
+            all_models = _candidates(key)
+        except Exception as exc:
+            last_err = exc
+            continue
+
+        cands = [n for n in all_models if blocked.get(n, 0) <= now]
+        if not cands:
+            continue
+
+        client = genai.Client(api_key=key)
+        for name in cands[:5]:
+            try:
+                text = _run(client, name, prompt, box)
+                if text and text.strip():
+                    st.session_state["active_model"] = f"{name} (کلید {kidx+1})"
+                    return text
+            except Exception as exc:
+                last_err = exc
+                if _retryable(exc):
+                    _block(name, exc)
+                    skipped.append(f"{name} (کلید {kidx+1})")
+                    continue
+                break
+
+    st.error("سهمیه یا محدودیت روی تمام کلیدها و مدل‌ها فعال است.\n\nآخرین خطا: " + str(last_err)[:300])
     return None
 
 
@@ -458,7 +451,7 @@ def news_item(idx, item):
 def render_workflow():
     news = st.session_state.news_list
     total = len(news)
-    count = lambda s: sum(1 for n in news if n["status"] == s)  # noqa: E731
+    count = lambda s: sum(1 for n in news if n["status"] == s)
     done = count("Approved")
     pct = round(done / total * 100) if total else 0
     with st.container(border=True):
@@ -589,13 +582,11 @@ with st.sidebar:
     st.radio("منو", PAGES, key="page", label_visibility="collapsed")
     st.markdown("---")
     with st.expander("🔑 Gemini"):
-        st.text_input("کلید API", type="password", key="api_key")
+        st.text_input("کلیدها (با کاما جدا کنید)", type="password", key="api_key",
+                      help="کلید اول و دوم را با ویرگول (,) انگلیسی از هم جدا کنید")
         active = st.session_state.get("active_model")
         if active:
-            st.caption(f"مدل فعال: {active.replace('models/', '')}")
-        n_blocked = sum(1 for t in _blocked().values() if t > time.time())
-        if n_blocked:
-            st.caption(f"{fa(n_blocked)} مدل موقتاً به سقف رسیده‌اند")
+            st.caption(f"مدل فعال: {active}")
         if st.button("🔄 بازنشانی فهرست مدل‌ها"):
             _blocked().clear()
             _list_models.clear()
@@ -610,7 +601,7 @@ if page == PAGES[0]:
     header("داشبورد شخصی تولید محتوای تکنولوژی 🚀",
            "مدیریت هوشمند اخبار هفتگی و بخش دوم (دیپ‌دایو)")
     with st.container(key="layout_top"):
-        col_flow, col_ideas = st.columns([2, 1], gap="medium")  # ستون اول = سمت چپ (و در موبایل بالاتر)
+        col_flow, col_ideas = st.columns([2, 1], gap="medium")
         with col_flow:
             render_workflow()
         with col_ideas:
