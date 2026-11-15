@@ -536,15 +536,19 @@ def header(title, sub):
     H(f'<div class="page-title">{title}</div><div class="page-sub">{sub}</div>')
 
 
-def news_item(idx, item):
-    decided = item.get("decided", "")
-    when = (f' <span class="muted">{fa(decided)}</span>'
-            if decided and item["status"] in ("Approved", "Rejected") else "")
+def news_item(idx, item, show_script=False):
+    status = item["status"]
+    date_line = ""
+    if status in ("Approved", "Rejected"):
+        verb = "تأیید" if status == "Approved" else "رد"
+        decided = item.get("decided", "")
+        when = fa(decided) if decided else "ثبت نشده (یک‌بار دیگر دکمهٔ «" + verb + "» را بزنید)"
+        date_line = f'<div class="muted" style="margin-top:4px">📅 تاریخ {verb}: {when}</div>'
     with st.container(border=True):
         H('<div class="news-head">'
           f'<div class="avatar">{item["icon"]}</div>'
-          f'<div><div class="news-title">{esc(item["title"])} {chip(item["status"])}{when}</div>'
-          f'<div class="news-desc">{esc(item["desc"])}</div></div></div>')
+          f'<div><div class="news-title">{esc(item["title"])} {chip(status)}</div>'
+          f'<div class="news-desc">{esc(item["desc"])}</div>{date_line}</div></div>')
 
         with st.container(key=f"keep_news_{idx}"):
             b_ok, b_no, b_ai = st.columns(3)
@@ -553,11 +557,11 @@ def news_item(idx, item):
             ai = b_ai.button("🔍 بررسی", key=f"rev_{idx}")
         if ok:
             item["status"] = "Approved"
-            item["decided"] = dt.date.today().isoformat()
+            item["decided"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
             st.rerun()
         if no:
             item["status"] = "Rejected"
-            item["decided"] = dt.date.today().isoformat()
+            item["decided"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
             st.rerun()
         if ai:
             t0 = time.time()
@@ -573,7 +577,7 @@ def news_item(idx, item):
             with st.expander("نتیجهٔ بررسی هوشمند" + (f" ({fa(secs)} ثانیه)" if secs else "")):
                 st.markdown(item["ai"])
 
-        if item["status"] == "Approved":
+        if show_script and item["status"] == "Approved":
             saved_at = item.get("script_saved", "")
             label = "📝 اسکریپت" + (f" — ذخیره‌شده {fa(saved_at)}" if saved_at else " — هنوز ذخیره نشده")
             with st.expander(label):
@@ -588,7 +592,7 @@ def news_item(idx, item):
                                      key=f"dl_script_{idx}")
 
 
-def render_workflow():
+def render_workflow(show_script=False):
     news = st.session_state.news_list
     total = len(news)
     count = lambda s: sum(1 for n in news if n["status"] == s)  # noqa: E731
@@ -604,7 +608,7 @@ def render_workflow():
           f'<div class="step done">تأیید شده <b>{fa(done)}</b></div>'
           '</div>')
         for idx, item in enumerate(news):
-            news_item(idx, item)
+            news_item(idx, item, show_script)
 
 
 def render_ideas():
@@ -793,7 +797,7 @@ if page == PAGES[0]:
 
 elif page == PAGES[1]:
     header("اخبار داغ هفته", "بررسی، تأیید یا ردِ خبرهای پیشنهادی")
-    render_workflow()
+    render_workflow(show_script=True)
     with st.form("add_news", clear_on_submit=True):
         t = st.text_input("عنوان خبر جدید")
         d = st.text_input("توضیح کوتاه")
