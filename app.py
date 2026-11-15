@@ -2,8 +2,10 @@ import calendar
 import copy
 import datetime as dt
 import html
+import json
 import re
 import time
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from google import genai
@@ -249,12 +251,34 @@ DEEP_DEFAULT = [
 ]
 
 
+DATA_FILE = Path(__file__).with_name("data.json")
+
+
+def load_data():
+    try:
+        return json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def save_data():
+    ss = st.session_state
+    try:
+        DATA_FILE.write_text(
+            json.dumps({"news_list": ss.news_list, "deep_topics": ss.deep_topics, "events": ss.events},
+                       ensure_ascii=False, indent=1),
+            encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def init_state():
     ss = st.session_state
     today = dt.date.today()
-    ss.setdefault("news_list", copy.deepcopy(NEWS_DEFAULT))
-    ss.setdefault("deep_topics", copy.deepcopy(DEEP_DEFAULT))
-    ss.setdefault("events", [])
+    saved = load_data() if "news_list" not in ss else {}
+    ss.setdefault("news_list", saved.get("news_list") or copy.deepcopy(NEWS_DEFAULT))
+    ss.setdefault("deep_topics", saved.get("deep_topics") or copy.deepcopy(DEEP_DEFAULT))
+    ss.setdefault("events", saved.get("events") or [])
     ss.setdefault("cal_year", today.year)
     ss.setdefault("cal_month", today.month)
     ss.setdefault("views", [120, 250, 180, 300, 450, 380, 520])
@@ -303,8 +327,13 @@ def _version(name):
 
 
 def _candidates(api_key):
-  # قفل کردن روی مدل‌های کاملاً پایدار و تست‌شده برای جلوگیری از هنگ کردن
-  return ["gemini-1.5-flash", "gemini-2.5-flash"]
+    """مدل‌های flash متنی، از جدیدترین نسخه به قدیمی‌ترین."""
+    skip = ("image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics",
+            "omni", "computer", "native", "pro")
+    flash = [n for n in _list_models(api_key)
+             if ("flash" in n or "gemma" in n) and not any(x in n for x in skip)]
+    flash.sort(key=lambda n: ("gemma" in n, "latest" in n, -_version(n), "lite" in n, "preview" in n, n))
+    return flash
 
 
 @st.cache_resource
@@ -508,10 +537,13 @@ def header(title, sub):
 
 
 def news_item(idx, item):
+    decided = item.get("decided", "")
+    when = (f' <span class="muted">{fa(decided)}</span>'
+            if decided and item["status"] in ("Approved", "Rejected") else "")
     with st.container(border=True):
         H('<div class="news-head">'
           f'<div class="avatar">{item["icon"]}</div>'
-          f'<div><div class="news-title">{esc(item["title"])} {chip(item["status"])}</div>'
+          f'<div><div class="news-title">{esc(item["title"])} {chip(item["status"])}{when}</div>'
           f'<div class="news-desc">{esc(item["desc"])}</div></div></div>')
 
         with st.container(key=f"keep_news_{idx}"):
@@ -521,9 +553,11 @@ def news_item(idx, item):
             ai = b_ai.button("🔍 بررسی", key=f"rev_{idx}")
         if ok:
             item["status"] = "Approved"
+            item["decided"] = dt.date.today().isoformat()
             st.rerun()
         if no:
             item["status"] = "Rejected"
+            item["decided"] = dt.date.today().isoformat()
             st.rerun()
         if ai:
             t0 = time.time()
@@ -538,6 +572,20 @@ def news_item(idx, item):
             secs = st.session_state.get("last_ai_secs")
             with st.expander("نتیجهٔ بررسی هوشمند" + (f" ({fa(secs)} ثانیه)" if secs else "")):
                 st.markdown(item["ai"])
+
+        if item["status"] == "Approved":
+            saved_at = item.get("script_saved", "")
+            label = "📝 اسکریپت" + (f" — ذخیره‌شده {fa(saved_at)}" if saved_at else " — هنوز ذخیره نشده")
+            with st.expander(label):
+                txt = st.text_area("متن نهایی اسکریپت", value=item.get("script", ""),
+                                   height=260, key=f"script_{idx}")
+                c_save, c_dl = st.columns(2)
+                if c_save.button("💾 ذخیره", key=f"save_script_{idx}", type="primary"):
+                    item["script"] = txt
+                    item["script_saved"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    st.success("ذخیره شد ✓")
+                c_dl.download_button("⬇️ دانلود متن", data=txt, file_name=f"script_{idx + 1}.txt",
+                                     key=f"dl_script_{idx}")
 
 
 def render_workflow():
@@ -778,4 +826,8 @@ else:
         if st.button("بازنشانی همهٔ داده‌ها"):
             for k in ("news_list", "deep_topics", "events"):
                 st.session_state.pop(k, None)
+            DATA_FILE.unlink(missing_ok=True)
             st.rerun()
+
+# ذخیرهٔ خودکار در پایان هر اجرا
+save_data()
