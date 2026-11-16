@@ -13,6 +13,18 @@ from core.storage import load_remote, remote_enabled, save_remote
 # تحقیق‌های هر خبر تا این تعداد روز پس از آخرین فعالیت در آرشیف می‌مانند، سپس خودکار حذف می‌شوند.
 ARCHIVE_DAYS = 20
 TS_FMT = "%Y-%m-%d %H:%M"
+# خبرها هفته‌به‌هفته (شنبه تا جمعه) نگه داشته می‌شوند: هفتهٔ جاری + این‌تعداد هفتهٔ قبل؛ قدیمی‌تر خودکار حذف می‌شود.
+KEEP_PREVIOUS_WEEKS = 2
+WEEKDAY_FA = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه"]  # به ترتیب date.weekday()
+
+
+def week_start(d):
+    """شنبهٔ هفتهٔ شمسی که d در آن است."""
+    return d - dt.timedelta(days=(d.weekday() - 5) % 7)
+
+
+def current_week():
+    return week_start(dt.date.today()).isoformat()
 
 NEWS_DEFAULT = [
     {"title": "ربات‌های انسان‌نما با یادگیری شهودی",
@@ -88,12 +100,32 @@ def save_data():
 
 
 def normalize_news():
-    """خبرهای قدیمی را به قالب جدید (تحقیق چندنسخه‌ای) تبدیل می‌کند."""
+    """خبرهای قدیمی را به قالب جدید (تحقیق چندنسخه‌ای، روز و هفته) تبدیل می‌کند."""
     for n in st.session_state.news_list:
         n.setdefault("research", [])
         if n.get("ai") and not n["research"]:
             n["research"] = [{"v": 1, "ts": now_str(), "q": "", "text": n["ai"], "model": ""}]
         n["ai"] = ""
+        if not n.get("added"):
+            n["added"] = (n.get("decided") or "")[:10] or dt.date.today().isoformat()
+        if not n.get("week"):
+            try:
+                n["week"] = week_start(dt.date.fromisoformat(n["added"])).isoformat()
+            except ValueError:
+                n["added"], n["week"] = dt.date.today().isoformat(), current_week()
+
+
+def purge_old_weeks():
+    """خبرهای قدیمی‌تر از (هفتهٔ جاری + KEEP_PREVIOUS_WEEKS هفتهٔ قبل) را حذف می‌کند."""
+    ss = st.session_state
+    cutoff = (week_start(dt.date.today()) - dt.timedelta(weeks=KEEP_PREVIOUS_WEEKS)).isoformat()
+    keep = [n for n in ss.news_list if n.get("week", "") >= cutoff]
+    removed = len(ss.news_list) - len(keep)
+    if removed:
+        ss.news_list = keep
+        for k in [k for k in ss.keys() if str(k).startswith(("script_", "chat_"))]:
+            del ss[k]  # کلیدهای ویجت بر اساس شمارهٔ خبرند و بعد از حذف نامعتبر می‌شوند
+        st.toast(f"{removed} خبر قدیمی‌تر از {KEEP_PREVIOUS_WEEKS + 1} هفته از آرشیف حذف شد.")
 
 
 def purge_expired():
@@ -131,4 +163,5 @@ def init_state():
     ss.setdefault("views", [120, 250, 180, 300, 450, 380, 520])
     ss.setdefault("total_views", 12424)
     normalize_news()
+    purge_old_weeks()
     purge_expired()
