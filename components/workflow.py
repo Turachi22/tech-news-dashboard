@@ -4,10 +4,10 @@ import time
 
 import streamlit as st
 
-from core.ai import NEWS_PROMPT, ask_ai
+from core.ai import NEWS_PROMPT, ask_ai, build_followup_prompt
 from core.export import DOCX_MIME, HAS_DOCX, make_docx
 from core.helpers import H, chip, esc, fa
-from core.state import save_data
+from core.state import ARCHIVE_DAYS, days_left, now_str, save_data
 
 
 def _now():
@@ -53,6 +53,42 @@ def _script_box(idx, item):
                                   file_name=f"script_{idx + 1}.txt", key=f"dl_txt_{idx}")
 
 
+def _add_version(item, question, text, secs=None):
+    """هر تحقیق یا پاسخ تازه، یک نسخهٔ جدید زیر نسخه‌های قبلی می‌شود (هیچ نسخه‌ای بازنویسی نمی‌شود)."""
+    versions = item.setdefault("research", [])
+    versions.append({"v": len(versions) + 1, "ts": now_str(), "q": question, "text": text,
+                     "model": st.session_state.get("active_model", ""), "secs": secs})
+    save_data()
+
+
+def _research_block(idx, item):
+    """نسخه‌های تحقیق + کادر پرسش تکمیلی از Gemini."""
+    versions = item.get("research") or []
+    if not versions:
+        return
+    st.caption(f"🗂 آرشیف: {fa(len(versions))} نسخه · تا {fa(days_left(item))} روز دیگر نگه‌داری می‌شود "
+               f"(پس از {fa(ARCHIVE_DAYS)} روز بدون فعالیت، خودکار حذف می‌شود)")
+    for i, v in enumerate(versions):
+        title = "بررسی اولیه" if not v.get("q") else v["q"][:60] + ("…" if len(v["q"]) > 60 else "")
+        with st.expander(f"نسخهٔ {fa(v['v'])} — {title} · {fa(v['ts'])}", expanded=(i == len(versions) - 1)):
+            st.markdown(v["text"])
+            info = " · ".join(x for x in (v.get("model"), f"{fa(v['secs'])} ثانیه" if v.get("secs") else "") if x)
+            if info:
+                st.caption(info)
+
+    with st.expander("💬 سؤال یا درخواست اطلاعات بیشتر"):
+        with st.form(f"chat_{idx}", clear_on_submit=True):
+            q = st.text_area("سؤال شما از Gemini", height=90,
+                             placeholder="مثلاً: آمار دقیق‌تر بده / منبع این ادعا چیست؟ / از دید منتقدان بنویس")
+            sent = st.form_submit_button("ارسال", type="primary")
+        if sent and q.strip():
+            t0 = time.time()
+            text = ask_ai(build_followup_prompt(item, q.strip()))
+            if text:
+                _add_version(item, q.strip(), text, round(time.time() - t0, 1))
+                st.rerun()
+
+
 def news_item(idx, item, show_script=False):
     status = item["status"]
     date_line = ""
@@ -81,16 +117,13 @@ def news_item(idx, item, show_script=False):
         if ai:
             t0 = time.time()
             text = ask_ai(NEWS_PROMPT.format(title=item["title"], desc=item["desc"]))
-            st.session_state["last_ai_secs"] = round(time.time() - t0, 1)
             if text:
-                item["ai"] = text
+                again = bool(item.get("research"))
+                _add_version(item, "بررسی مجدد" if again else "", text, round(time.time() - t0, 1))
                 if item["status"] == "Pending":
                     item["status"] = "Reviewing"
                 st.rerun()
-        if item["ai"]:
-            secs = st.session_state.get("last_ai_secs")
-            with st.expander("نتیجهٔ بررسی هوشمند" + (f" ({fa(secs)} ثانیه)" if secs else "")):
-                st.markdown(item["ai"])
+        _research_block(idx, item)
 
         if show_script and item["status"] == "Approved":
             _script_box(idx, item)
