@@ -4,9 +4,18 @@
 """
 import streamlit as st
 
-st.set_page_config(page_title="داشبورد تولید محتوای تکنولوژی", layout="wide", page_icon="🚀")
+from pathlib import Path  # noqa: E402
+
+try:
+    from PIL import Image  # آیکن لوگو برای تب مرورگر و میان‌بر گوشی
+    _ICON = Image.open(Path(__file__).resolve().parent / "static" / "icon-512.png")
+except Exception:  # noqa: BLE001
+    _ICON = "🚀"
+
+st.set_page_config(page_title="داشبورد شخصی ساده", layout="wide", page_icon=_ICON)
 
 from components.sidebar import render_sidebar  # noqa: E402
+from core.pwa import inject_pwa  # noqa: E402
 from core.state import init_state, save_data  # noqa: E402
 from core.style import apply_css  # noqa: E402
 from views import deep, home, news, settings, stats  # noqa: E402
@@ -20,6 +29,7 @@ ROUTES = [  # (کلید در آدرس، برچسب منو، تابع نمایش)
 ]
 
 apply_css()
+inject_pwa()
 init_state()
 active = render_sidebar(ROUTES)
 for key, _label, render in ROUTES:
