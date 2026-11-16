@@ -43,6 +43,25 @@ DEEP_PROMPT = RESEARCH_RULES + (
     "برای یک مینی‌مستند تکنولوژی دربارهٔ موضوع زیر اطلاعات پس‌زمینه، تاریخچه، حقایق کلیدی، "
     "نکته‌های کمتر شناخته‌شده و چند زاویهٔ روایی جذاب ارائه بده.\nموضوع: {title}"
 )
+FOLLOWUP_RULES = RESEARCH_RULES + (
+    "این یک پرسش تکمیلی دربارهٔ تحقیقی است که قبلاً انجام شده. فقط به سؤال جدید پاسخ بده و اطلاعات تازه، "
+    "دقیق و مستند بیاور؛ مطالب نسخه‌های قبلی را تکرار نکن، مگر برای تصحیح یک اشتباه.\n\n"
+)
+
+
+def build_followup_prompt(item, question, max_chars=14000):
+    """پرسش جدید را همراه خلاصهٔ نسخه‌های قبلی (بدون بخش منابع) برای مدل آماده می‌کند."""
+    parts, used = [], 0
+    for v in reversed(item.get("research", [])):
+        body = v["text"].split("\n\n---\n")[0]
+        block = f"[نسخه {v['v']}" + (f" — سؤال: {v['q']}" if v.get("q") else "") + f"]\n{body}"
+        if used + len(block) > max_chars:
+            break
+        parts.insert(0, block)
+        used += len(block)
+    return (FOLLOWUP_RULES + f"خبر: {item['title']} — {item['desc']}\n\n"
+            "تحقیق‌ها و پرسش‌های قبلی:\n" + "\n\n".join(parts)
+            + f"\n\nسؤال یا درخواست جدید: {question}")
 
 
 @st.cache_resource
