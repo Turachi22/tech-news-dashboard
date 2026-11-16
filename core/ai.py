@@ -387,6 +387,28 @@ def suggest_news(end_date, days=3, n=5, existing=()):
     return items, sources
 
 
+def quota_status():
+    """فهرست مدل‌های منتظر سهمیه: [(کلید، مدل، ثانیهٔ باقی‌مانده، توضیح کوتاه)]؛ نزدیک‌ترین زمان آزاد شدن اول."""
+    now = time.time()
+    rows = []
+    for k, t in _blocked().items():
+        if t <= now:
+            continue
+        kid, _, name = k.partition(":")
+        if name == "*":
+            why = "کلید نامعتبر یا بدون دسترسی"
+        else:
+            r = _reasons().get(k, "").lower()
+            if "limit=0" in r or "not found" in r or "404" in r:
+                why = "در پلن رایگان این کلید در دسترس نیست"
+            elif "perday" in r.replace(" ", "") or "per day" in r:
+                why = "سهمیهٔ روزانه تمام شده"
+            else:
+                why = "سقف دقیقه‌ای؛ به‌زودی آزاد می‌شود"
+        rows.append((kid, name, t - now, why))
+    return sorted(rows, key=lambda r: r[2])
+
+
 def blocked_count():
     return sum(1 for t in _blocked().values() if t > time.time())
 
