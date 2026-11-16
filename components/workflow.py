@@ -7,7 +7,8 @@ import streamlit as st
 from core.ai import NEWS_PROMPT, ask_ai, build_followup_prompt
 from core.export import DOCX_MIME, HAS_DOCX, make_docx
 from core.helpers import H, chip, esc, fa
-from core.state import ARCHIVE_DAYS, days_left, now_str, save_data
+from core.state import (ARCHIVE_DAYS, KEEP_PREVIOUS_WEEKS, WEEKDAY_FA, current_week, days_left,
+                        now_str, save_data)
 
 
 def _now():
@@ -129,14 +130,42 @@ def news_item(idx, item, show_script=False):
             _script_box(idx, item)
 
 
-def render_workflow(show_script=False):
+def _day_label(iso):
+    try:
+        d = dt.date.fromisoformat(iso)
+        return f"📅 {WEEKDAY_FA[d.weekday()]} {fa(iso)}" + (" (امروز)" if d == dt.date.today() else "")
+    except ValueError:
+        return "📅 —"
+
+
+def _indices(week):
+    """شمارهٔ خبرهای یک هفته؛ جدیدترین روز اول، و خبرهای روزهای قبل پایین‌تر."""
     news = st.session_state.news_list
-    total = len(news)
-    count = lambda s: sum(1 for n in news if n["status"] == s)  # noqa: E731
+    idxs = [i for i, n in enumerate(news) if n.get("week") == week]
+    return sorted(idxs, key=lambda i: news[i].get("added", ""), reverse=True)  # مرتب‌سازی پایدار است
+
+
+def _render_items(idxs, show_script):
+    news, last_day = st.session_state.news_list, None
+    for i in idxs:
+        day = news[i].get("added", "")
+        if day != last_day:
+            H(f'<div class="muted" style="margin:10px 0 4px">{_day_label(day)}</div>')
+            last_day = day
+        news_item(i, news[i], show_script)
+
+
+def render_workflow(show_script=False):
+    """جریان کاری هفتهٔ جاری."""
+    news = st.session_state.news_list
+    idxs = _indices(current_week())
+    week_news = [news[i] for i in idxs]
+    total = len(week_news)
+    count = lambda s: sum(1 for n in week_news if n["status"] == s)  # noqa: E731
     done = count("Approved")
     pct = round(done / total * 100) if total else 0
     with st.container(border=True):
-        H('<div class="card-title">جریان کاری تأیید اخبار</div>')
+        H('<div class="card-title">جریان کاری تأیید اخبار (هفتهٔ جاری)</div>')
         H(f'<div class="progress"><div style="width:{pct}%"></div></div>'
           f'<div class="muted">{fa(done)} از {fa(total)} خبر تأیید شده · {fa(count("Rejected"))} رد شده</div>'
           '<div class="stepper">'
@@ -144,5 +173,22 @@ def render_workflow(show_script=False):
           f'<div class="step review">بررسی <b>{fa(count("Reviewing"))}</b></div><span class="arrow">←</span>'
           f'<div class="step done">تأیید شده <b>{fa(done)}</b></div>'
           '</div>')
-        for idx, item in enumerate(news):
-            news_item(idx, item, show_script)
+        if not idxs:
+            st.caption("هنوز خبری برای این هفته نیست.")
+        _render_items(idxs, show_script)
+
+
+def render_previous_weeks(show_script=True):
+    """پنجرهٔ جدا برای هفته‌های قبل (هر هفته یک زبانه). فقط KEEP_PREVIOUS_WEEKS هفته نگه داشته می‌شود."""
+    cw = dt.date.fromisoformat(current_week())
+    weeks = [(cw - dt.timedelta(weeks=k)).isoformat() for k in range(1, KEEP_PREVIOUS_WEEKS + 1)]
+    weeks = [w for w in weeks if _indices(w)]
+    if not weeks:
+        return
+    with st.container(border=True):
+        H(f'<div class="card-title">📁 هفته‌های قبل (آرشیف {fa(KEEP_PREVIOUS_WEEKS)} هفته)</div>')
+        tabs = st.tabs([f"{fa(w)} تا {fa((dt.date.fromisoformat(w) + dt.timedelta(days=6)).isoformat())}"
+                        for w in weeks])
+        for tab, w in zip(tabs, weeks):
+            with tab:
+                _render_items(_indices(w), show_script)
