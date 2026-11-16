@@ -1,5 +1,8 @@
 """ابزارهای کوچک و مشترک: اعداد فارسی، escape، چیپ وضعیت، عنوان صفحه."""
+import base64
 import html
+from functools import lru_cache
+from pathlib import Path
 
 import streamlit as st
 
@@ -33,3 +36,20 @@ def chip(status):
 
 def header(title, sub):
     H(f'<div class="page-title">{title}</div><div class="page-sub">{sub}</div>')
+
+
+LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo.webp"
+
+
+@lru_cache(maxsize=1)
+def _logo_uri():
+    try:
+        return "data:image/webp;base64," + base64.b64encode(LOGO_PATH.read_bytes()).decode()
+    except OSError:
+        return ""
+
+
+def logo_html(css_class="logo"):
+    """لوگوی ساده (سفید و سرخ، شفاف)؛ اگر فایل assets/logo.webp نبود، متن «ساده»."""
+    uri = _logo_uri()
+    return f'<img class="{css_class}" src="{uri}" alt="ساده">' if uri else "ساده"
