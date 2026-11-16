@@ -75,7 +75,7 @@ def load_data():
 def save_data():
     """فقط وقتی داده تغییر کرده باشد ذخیره می‌کند (محلی + در صورت تنظیم، Gist)."""
     ss = st.session_state
-    text = json.dumps({"news_list": ss.news_list, "deep_topics": ss.deep_topics, "events": ss.events},
+    text = json.dumps({"news_list": ss.news_list, "deep_topics": ss.deep_topics, "events": ss.events, "daily": ss.get("daily", {})},
                       ensure_ascii=False, indent=1)
     digest = hashlib.md5(text.encode("utf-8")).hexdigest()
     if ss.get("_saved_hash") == digest:
@@ -158,6 +158,7 @@ def init_state():
     ss.setdefault("news_list", saved.get("news_list") or copy.deepcopy(NEWS_DEFAULT))
     ss.setdefault("deep_topics", saved.get("deep_topics") or copy.deepcopy(DEEP_DEFAULT))
     ss.setdefault("events", saved.get("events") or [])
+    ss.setdefault("daily", saved.get("daily") or {})   # {"tried": تاریخ آخرین تلاش، "reserve": خبرهای ذخیره برای روزهای بعد}
     ss.setdefault("cal_year", today.year)
     ss.setdefault("cal_month", today.month)
     ss.setdefault("views", [120, 250, 180, 300, 450, 380, 520])
