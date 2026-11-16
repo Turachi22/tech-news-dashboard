@@ -23,5 +23,5 @@ def render():
         d = st.text_input("توضیح کوتاه")
         if st.form_submit_button("افزودن خبر") and t.strip():
             st.session_state.news_list.append(
-                {"title": t.strip(), "desc": d.strip(), "icon": "📰", "status": "Pending", "ai": ""})
+                {"title": t.strip(), "desc": d.strip(), "icon": "📰", "status": "Pending", "ai": "", "research": []})
             st.rerun()
