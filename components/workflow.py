@@ -108,19 +108,36 @@ def news_item(idx, item, show_script=False):
             b_ok, b_no, b_ai = st.columns(3)
             ok = b_ok.button("➕ تأیید", key=f"app_{idx}", type="primary")
             no = b_no.button("✖ رد", key=f"rej_{idx}")
-            ai = b_ai.button("🔍 بررسی", key=f"rev_{idx}")
+            ai = b_ai.button("🔍 بررسی" if not item.get("research") else "📂 تحقیق ثبت‌شده", key=f"rev_{idx}")
         if ok:
             item["status"], item["decided"] = "Approved", _now()
             st.rerun()
         if no:
             item["status"], item["decided"] = "Rejected", _now()
             st.rerun()
+        has_research = bool(item.get("research"))
+        redo_key = f"_redo_{idx}"
+        if ai and has_research:
+            # تحقیق قبلاً انجام شده؛ بدون تأیید، درخواست تازه‌ای مصرف نمی‌شود
+            st.session_state[redo_key] = True
+        if has_research and st.session_state.get(redo_key):
+            st.info("برای این خبر قبلاً تحقیق انجام شده و نسخه‌های آن پایین‌تر هست. "
+                    "بررسی مجدد یک درخواست جدید از سهمیه مصرف می‌کند.")
+            c_yes, c_no = st.columns(2)
+            go = c_yes.button("🔁 بله، نسخهٔ جدید بساز", key=f"redo_yes_{idx}", type="primary")
+            if c_no.button("انصراف", key=f"redo_no_{idx}"):
+                st.session_state[redo_key] = False
+                st.rerun()
+            if not go:
+                ai = False
+            else:
+                st.session_state[redo_key] = False
+                ai = True
         if ai:
             t0 = time.time()
             text = ask_ai(NEWS_PROMPT.format(title=item["title"], desc=item["desc"]))
             if text:
-                again = bool(item.get("research"))
-                _add_version(item, "بررسی مجدد" if again else "", text, round(time.time() - t0, 1))
+                _add_version(item, "بررسی مجدد" if has_research else "", text, round(time.time() - t0, 1))
                 if item["status"] == "Pending":
                     item["status"] = "Reviewing"
                 st.rerun()
