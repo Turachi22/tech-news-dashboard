@@ -2,6 +2,7 @@
 import streamlit as st
 
 from core.ai import diagnose
+from core.backup import backup_section
 from core.helpers import header
 from core.state import ARCHIVE_DAYS, DATA_FILE
 from core.storage import remote_enabled
@@ -23,10 +24,13 @@ def render():
         st.caption(f"آرشیف تحقیق‌ها: {ARCHIVE_DAYS} روز پس از آخرین فعالیت هر خبر.")
         st.text_input("نام کانال یوتیوب", value="کانال ساده")
         st.selectbox("وضعیت بروزرسانی خودکار", ["فعال", "غیرفعال"])
+        st.divider()
+        backup_section()
+        st.divider()
         if st.button("🧪 تست کلیدها و مدل‌ها"):
             diagnose()
         if st.button("بازنشانی همهٔ داده‌ها"):
-            for k in ("news_list", "deep_topics", "events"):
+            for k in ("news_list", "deep_topics", "events", "daily"):
                 st.session_state.pop(k, None)
             DATA_FILE.unlink(missing_ok=True)
             st.rerun()
