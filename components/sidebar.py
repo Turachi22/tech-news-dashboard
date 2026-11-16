@@ -1,8 +1,8 @@
 """منوی کناری: دکمه‌های صفحه‌ها (از فهرست ROUTES در app.py) و پنل کلیدهای Gemini."""
 import streamlit as st
 
-from core.ai import DAILY_REQUEST_LIMIT, blocked_count, reset_model_cache, usage_today
-from core.helpers import H, fa, logo_html
+from core.ai import DAILY_REQUEST_LIMIT, blocked_count, quota_status, reset_model_cache, usage_today
+from core.helpers import H, esc, fa, logo_html
 
 
 BRAND_CSS = """
@@ -21,6 +21,38 @@ BRAND_CSS = """
 """
 
 
+def _wait_text(secs):
+    if secs < 90:
+        return f"{fa(int(secs))} ثانیه"
+    if secs < 5400:
+        return f"{fa(round(secs / 60))} دقیقه"
+    return f"{fa(round(secs / 3600))} ساعت"
+
+
+def _quota_box():
+    """نشانگر کوچک وضعیت سهمیه: مصرف امروز + مدل‌های منتظر سهمیه و زمان آزاد شدن."""
+    used, limit = usage_today(), DAILY_REQUEST_LIMIT
+    pct = min(used / limit, 1.0) if limit else 0
+    color = "#34d399" if pct < .6 else ("#fbbf24" if pct < .9 else "#f87171")
+    rows = quota_status()
+    waiting = "".join(
+        f'<div class="q-row"><b>{esc(m.replace("models/", "") or "کلید …" + k)}</b>'
+        f'<span>{esc(why)} · {_wait_text(t)}</span></div>' for k, m, t, why in rows[:6])
+    H("""<style>
+.qbox { border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 10px 12px; margin: 4px 0 10px;
+        background: rgba(255,255,255,.04); font-size: .8rem; direction: rtl; }
+.q-bar { height: 6px; border-radius: 6px; background: rgba(255,255,255,.12); margin: 6px 0 2px; overflow: hidden; }
+.q-fill { height: 100%; border-radius: 6px; }
+.q-row { display: flex; flex-direction: column; margin-top: 6px; padding-top: 6px;
+         border-top: 1px dashed rgba(255,255,255,.12); }
+.q-row span { opacity: .75; font-size: .72rem; }
+</style>""" + f'<div class="qbox">📊 درخواست امروز: <b>{fa(used)}</b> از {fa(limit)}'
+      f'<div class="q-bar"><div class="q-fill" style="width:{int(pct * 100)}%;background:{color}"></div></div>'
+      + (f'<div style="margin-top:6px">⏳ منتظر سهمیه: {fa(len(rows))}</div>{waiting}' if rows
+         else '<div style="margin-top:6px;opacity:.75">همهٔ مدل‌ها آمادهٔ کارند ✅</div>')
+      + '</div>')
+
+
 def render_sidebar(routes):
     """routes: فهرست (کلید، برچسب منو، تابع نمایش). کلید صفحه در آدرس هم ذخیره می‌شود تا با رفرش به همان صفحه برگردید."""
     ss = st.session_state
@@ -36,6 +68,7 @@ def render_sidebar(routes):
                 ss.page = key
                 st.rerun()
         st.markdown("---")
+        _quota_box()
         with st.expander("🔑 Gemini"):
             st.text_input("کلید اول", type="password", key="api_key")
             st.text_input("کلید دوم (اختیاری)", type="password", key="api_key2")
