@@ -13,13 +13,25 @@ from core.helpers import fa
 # ---------------------------------------------------------------------------
 # تنظیمات مدل‌ها — فقط همین بخش را برای عوض‌کردن مدل‌ها ویرایش کنید
 # ---------------------------------------------------------------------------
+# مدل‌های مجاز (رایگان) به ترتیب اولویت. برنامه اول مدل اول را امتحان می‌کند؛
+# اگر سهمیه‌اش تمام شد یا در دسترس نبود، مدل بعدی را.
 PREFERRED_MODELS = [
-    "gemini-1.5-flash",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-pro",  # کندتر و با سهمیهٔ رایگان کم‌تر؛ آخرین گزینه
 ]
 # اگر True باشد و هیچ‌کدام از مدل‌های بالا کار نکرد، مدل‌های flash دیگرِ حساب شما هم امتحان می‌شوند.
 ALLOW_FALLBACK = False
-# تفکر داخلی مدل‌های ۲٫۵: 0 = خاموش (سریع‌تر و مصرف توکن کم‌تر)
+# تفکر داخلی مدل‌های ۲٫۵ (flash و flash-lite): 0 = خاموش (سریع‌تر و مصرف توکن کم‌تر)،
+# None = پیش‌فرض گوگل (دقیق‌تر ولی کندتر). مدل 2.5-pro و نسخه‌های 2.0 تحت‌تأثیر نیستند.
 THINKING_BUDGET = 0
+
+# --- محافظ مصرف (برای جلوگیری از هدر رفتن سهمیهٔ رایگان) ---
+MAX_ATTEMPTS_PER_CLICK = 8      # حداکثر تعداد تلاش (ترکیب مدل × کلید) برای یک کلیک
+MIN_SECONDS_BETWEEN_CALLS = 8   # فاصلهٔ حداقل بین دو درخواست پشت‌سرهم
+DAILY_REQUEST_LIMIT = 60        # سقف نرم درخواست در هر روز (بر اساس ساعت سهمیهٔ گوگل)
 
 RESEARCH_RULES = (
     "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب تحقیق کن و پاسخ را به زبان فارسی، "
@@ -58,6 +70,27 @@ def build_followup_prompt(item, question, max_chars=14000):
 
 
 @st.cache_resource
+def _usage():
+    return {"day": "", "count": 0}
+
+
+def _today_pt():
+    return dt.datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
+
+
+def usage_today():
+    u = _usage()
+    if u["day"] != _today_pt():
+        u["day"], u["count"] = _today_pt(), 0
+    return u["count"]
+
+
+def _count_request():
+    usage_today()
+    _usage()["count"] += 1
+
+
+@st.cache_resource
 def _blocked():
     """مدل‌هایی که موقتاً (به‌خاطر سهمیه) کنار گذاشته شده‌اند: نام مدل -> زمان آزاد شدن."""
     return {}
@@ -86,13 +119,18 @@ def _discover(api_key):
 
 
 def _candidates(api_key):
-    """فهرست مدل‌هایی که امتحان می‌شوند: ابتدا PREFERRED_MODELS، و در صورت فعال‌بودن، بقیهٔ مدل‌ها."""
+    """مدل‌های PREFERRED_MODELS که واقعاً در حساب شما وجود دارند (بدون صرف درخواست)؛
+    اگر هیچ‌کدام نبود، یا ALLOW_FALLBACK روشن بود، مدل‌های flash دیگر هم اضافه می‌شوند."""
     models = list(PREFERRED_MODELS)
-    if ALLOW_FALLBACK:
-        try:
-            models += [n for n in _discover(api_key) if n not in models]
-        except Exception:  # noqa: BLE001
-            pass
+    discovered = []
+    try:
+        discovered = _discover(api_key)
+        available = set(discovered) | {n.replace("models/", "") for n in _list_models(api_key)}
+        models = [m for m in models if m in available]
+    except Exception:  # noqa: BLE001  (فهرست در دسترس نبود؛ همان فهرست ترجیحی را نگه می‌داریم)
+        pass
+    if ALLOW_FALLBACK or not models:
+        models += [n for n in discovered if n not in models]
     return models
 
 
@@ -106,7 +144,7 @@ def _brief(exc):
     t = str(exc)
     ids = list(dict.fromkeys(re.findall(r"quotaId['\"]?: ?['\"]?([\w-]+)", t)))
     lim = list(dict.fromkeys(re.findall(r"limit: (\d+)", t)))
-    out = t[:70].replace("\n", " ")
+    out = t[:160].replace("\n", " ")
     if ids:
         out += " | " + ", ".join(ids)
     if lim:
@@ -168,6 +206,7 @@ def _block(kid, name, exc):
 
 
 def _stream(client, model_name, prompt, box, use_search=True):
+    _count_request()
     kwargs = dict(
         temperature=0.4,
         tools=[types.Tool(google_search=types.GoogleSearch())] if use_search else None,
@@ -210,7 +249,8 @@ def _run(client, name, prompt, box, kid=""):
         low = str(exc).lower()
         if "limit: 0" in low and not any(w in low for w in ("grounding", "search")):
             raise  # خود مدل در پلن رایگان نیست؛ امتحان بدون جست‌وجو بی‌فایده است
-        if any(w in low for w in ("google_search", "grounding")) or _is_quota(low):
+        search_issue = any(w in low for w in ("google_search", "grounding", "googlesearch"))
+        if search_issue:
             text = _stream(client, name, prompt, box, use_search=False)  # اگر این هم خطا داد، بالا می‌رود
             _blocked()[skey] = time.time() + 3600
             st.warning("جست‌وجوی وب (برای لینک منبع) روی این کلید/مدل در دسترس نبود؛ پاسخ بدون لینک تولید شد.")
@@ -232,6 +272,14 @@ def ask_ai(prompt, box=None):
     if not keys:
         st.error("لطفاً حداقل یک کلید Gemini وارد کنید (منوی کناری یا Secrets).")
         return None
+    if time.time() - ss.get("_last_ai_call", 0) < MIN_SECONDS_BETWEEN_CALLS:
+        st.warning(f"لطفاً {fa(MIN_SECONDS_BETWEEN_CALLS)} ثانیه بین دو درخواست صبر کنید.")
+        return None
+    if usage_today() >= DAILY_REQUEST_LIMIT:
+        st.error(f"سقف {fa(DAILY_REQUEST_LIMIT)} درخواست در روز پر شده است (برای حفظ سهمیهٔ رایگان). "
+                 "اگر لازم است، DAILY_REQUEST_LIMIT را در core/ai.py بالا ببرید.")
+        return None
+    ss["_last_ai_call"] = time.time()
     box = box if box is not None else st.empty()
 
     all_models, list_err = [], None
@@ -248,12 +296,14 @@ def ask_ai(prompt, box=None):
     skipped, last_err, tries = [], None, 0
     status = st.status("در حال جست‌وجو و تحقیق...", expanded=False)
     for name in all_models:
+        if tries >= MAX_ATTEMPTS_PER_CLICK:
+            break
         short = name.replace("models/", "")
         for idx, key in enumerate(keys):
             kid = key[-4:]
             if _is_blocked(kid, name):
                 continue
-            if tries >= 60:
+            if tries >= MAX_ATTEMPTS_PER_CLICK:
                 break
             tries += 1
             status.update(label=f"در حال جست‌وجو و تحقیق با «{short}» (کلید {fa(idx + 1)})...", state="running")
@@ -278,6 +328,7 @@ def ask_ai(prompt, box=None):
             return text
 
     if not skipped:  # همهٔ ترکیب‌ها از قبل کنار گذاشته شده بودند
+        status.update(label="همهٔ مدل‌ها فعلاً در انتظار سهمیه‌اند", state="error")
         now = time.time()
         waits = [t - now for kid_name, t in _blocked().items() if t > now]
         mins = max(round(min(waits) / 60), 1) if waits else 1
@@ -316,7 +367,7 @@ def diagnose():
     for i, k in enumerate(keys, 1):
         st.markdown(f"**کلید {fa(i)}** (…{k[-4:]})")
         try:
-            models = _candidates(k)[:30]
+            models = _candidates(k)[:10]
         except Exception as exc:  # noqa: BLE001
             st.error(f"دریافت فهرست مدل‌ها ناموفق بود: {_brief(exc)}")
             continue
@@ -324,6 +375,7 @@ def diagnose():
         rows, bar = [], st.progress(0)
         for j, m in enumerate(models, 1):
             short = m.replace("models/", "")
+            _count_request()
             try:
                 client.models.generate_content(model=m, contents="Reply with: OK")
                 rows.append(f"✅ {short}")
