@@ -10,6 +10,24 @@ import streamlit as st
 
 from core.helpers import fa
 
+# ---------------------------------------------------------------------------
+# تنظیمات مدل‌ها — فقط همین بخش را برای عوض‌کردن مدل‌ها ویرایش کنید
+# ---------------------------------------------------------------------------
+# مدل‌های مجاز (رایگان) به ترتیب اولویت. برنامه اول مدل اول را امتحان می‌کند؛
+# اگر سهمیه‌اش تمام شد یا در دسترس نبود، مدل بعدی را.
+PREFERRED_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-pro",  # کندتر و با سهمیهٔ رایگان کم‌تر؛ آخرین گزینه
+]
+# اگر True باشد و هیچ‌کدام از مدل‌های بالا کار نکرد، مدل‌های flash دیگرِ حساب شما هم امتحان می‌شوند.
+ALLOW_FALLBACK = False
+# تفکر داخلی مدل‌های ۲٫۵ (flash و flash-lite): 0 = خاموش (سریع‌تر و مصرف توکن کم‌تر)،
+# None = پیش‌فرض گوگل (دقیق‌تر ولی کندتر). مدل 2.5-pro و نسخه‌های 2.0 تحت‌تأثیر نیستند.
+THINKING_BUDGET = 0
+
 RESEARCH_RULES = (
     "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب تحقیق کن و پاسخ را به زبان فارسی، "
     "کامل، دقیق و با جزئیات بنویس (محدودیتی برای طول نیست). اعداد، تاریخ‌ها، نام افراد و شرکت‌ها را بیاور. "
@@ -45,14 +63,25 @@ def _version(name):
     return float(m.group(1)) if m else 0.0
 
 
-def _candidates(api_key):
-    """مدل‌های flash متنی، از جدیدترین نسخه به قدیمی‌ترین."""
+def _discover(api_key):
+    """مدل‌های flash متنی حساب شما، از جدیدترین نسخه به قدیمی‌ترین (فقط برای ALLOW_FALLBACK)."""
     skip = ("image", "tts", "live", "embedding", "audio", "exp", "vision", "robotics",
             "omni", "computer", "native", "pro")
-    flash = [n for n in _list_models(api_key)
+    flash = [n.replace("models/", "") for n in _list_models(api_key)
              if ("flash" in n or "gemma" in n) and not any(x in n for x in skip)]
     flash.sort(key=lambda n: ("gemma" in n, "latest" in n, -_version(n), "lite" in n, "preview" in n, n))
     return flash
+
+
+def _candidates(api_key):
+    """فهرست مدل‌هایی که امتحان می‌شوند: ابتدا PREFERRED_MODELS، و در صورت فعال‌بودن، بقیهٔ مدل‌ها."""
+    models = list(PREFERRED_MODELS)
+    if ALLOW_FALLBACK:
+        try:
+            models += [n for n in _discover(api_key) if n not in models]
+        except Exception:  # noqa: BLE001
+            pass
+    return models
 
 
 @st.cache_resource
@@ -127,10 +156,16 @@ def _block(kid, name, exc):
 
 
 def _stream(client, model_name, prompt, box, use_search=True):
-    cfg = types.GenerateContentConfig(
+    kwargs = dict(
         temperature=0.4,
         tools=[types.Tool(google_search=types.GoogleSearch())] if use_search else None,
     )
+    if THINKING_BUDGET is not None and "2.5" in model_name and "pro" not in model_name:
+        try:
+            kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=THINKING_BUDGET)
+        except Exception:  # noqa: BLE001  (نسخهٔ قدیمی کتابخانه)
+            pass
+    cfg = types.GenerateContentConfig(**kwargs)
     text, sources = "", {}
     for chunk in client.models.generate_content_stream(model=model_name, contents=prompt, config=cfg):
         text += chunk.text or ""
