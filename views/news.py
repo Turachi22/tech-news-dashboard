@@ -3,7 +3,7 @@ import datetime as dt
 
 import streamlit as st
 
-from components.workflow import approved_sections, render_previous_weeks, render_workflow
+from components.workflow import approved_sections, render_workflow
 from core.ai import suggest_news
 from core.state import current_week
 from core.export import DOCX_MIME, HAS_DOCX, make_docx
@@ -39,8 +39,7 @@ def _suggest_box():
 def render():
     header("اخبار داغ هفته", "بررسی، تأیید یا ردِ خبرهای پیشنهادی")
     ensure_daily_news()
-    render_workflow(show_script=True)
-    render_previous_weeks(show_script=True)
+    render_workflow(show_script=True, nav=True)
 
     sections = approved_sections()
     if sections:
