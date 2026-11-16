@@ -15,6 +15,7 @@ except Exception:  # noqa: BLE001
 st.set_page_config(page_title="داشبورد شخصی ساده", layout="wide", page_icon=_ICON)
 
 from components.sidebar import render_sidebar  # noqa: E402
+from core.auth import require_login  # noqa: E402
 from core.pwa import inject_pwa  # noqa: E402
 from core.state import init_state, save_data  # noqa: E402
 from core.style import apply_css  # noqa: E402
@@ -29,6 +30,7 @@ ROUTES = [  # (کلید در آدرس، برچسب منو، تابع نمایش)
 ]
 
 apply_css()
+require_login()   # رمز ورود (اگر APP_PASSWORD در Secrets باشد)
 inject_pwa()
 init_state()
 active = render_sidebar(ROUTES)
