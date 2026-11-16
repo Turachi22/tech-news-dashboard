@@ -15,12 +15,14 @@ from core.helpers import fa
 # ---------------------------------------------------------------------------
 # مدل‌های مجاز (رایگان) به ترتیب اولویت. برنامه اول مدل اول را امتحان می‌کند؛
 # اگر سهمیه‌اش تمام شد یا در دسترس نبود، مدل بعدی را.
-# خالی = انتخاب خودکار: برنامه فهرست مدل‌های واقعی حساب شما را می‌خواند و جدیدترین flash را اول امتحان می‌کند.
-# مدل‌های قدیمی (۱٫۵ و ۲٫۰ و ۲٫۵) که گوگل برای حساب‌های جدید بسته، خودکار آخر صف می‌روند.
-# اگر خواستید مدل خاصی اول باشد، نامش را اینجا بنویسید، مثلاً ["gemini-3.5-flash"].
-PREFERRED_MODELS = []
-# اگر True باشد، مدل‌های flash حساب شما (بعد از مدل‌های بالا) امتحان می‌شوند.
-ALLOW_FALLBACK = True
+# فقط این سه مدل استفاده می‌شوند (به ترتیب اولویت). lite کم‌مصرف‌ترین است و اول می‌آید.
+PREFERRED_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+]
+# False = فقط سه مدل بالا؛ هیچ مدل دیگری امتحان نمی‌شود.
+ALLOW_FALLBACK = False
 # تفکر داخلی مدل‌های ۲٫۵ (flash و flash-lite): 0 = خاموش (سریع‌تر و مصرف توکن کم‌تر)،
 # None = پیش‌فرض گوگل (دقیق‌تر ولی کندتر). مدل 2.5-pro و نسخه‌های 2.0 تحت‌تأثیر نیستند.
 THINKING_BUDGET = 0
@@ -126,7 +128,7 @@ def _candidates(api_key):
         models = [m for m in models if m in available]
     except Exception:  # noqa: BLE001  (فهرست در دسترس نبود؛ همان فهرست ترجیحی را نگه می‌داریم)
         pass
-    if ALLOW_FALLBACK or not models:
+    if ALLOW_FALLBACK:
         models += [n for n in discovered if n not in models]
     return models
 
@@ -257,7 +259,8 @@ def _run(client, name, prompt, box, kid=""):
 
 def _retryable(exc):
     low = str(exc).lower()
-    return (_is_quota(low) or _code(low, "404") or _code(low, "403")
+    return (_is_quota(low) or _code(low, "404") or _code(low, "403") or _code(low, "503")
+            or "unavailable" in low or "high demand" in low
             or any(w in low for w in ("no longer available", "not found", "not supported",
                                       "api_key_invalid", "api key not valid", "permission_denied")))
 
@@ -341,6 +344,47 @@ def ask_ai(prompt, box=None):
         for k, why in list(_reasons().items())[-12:]:
             st.code(f"{k}\n{why}", language=None)
     return None
+
+
+SUGGEST_PROMPT = (
+    "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب، فقط خبرهای تکنولوژی را پیدا کن که "
+    "بین {start} و {end} (هر دو روز شامل) منتشر شده‌اند و دربارهٔ یک پیشرفت یا به‌روزرسانی جدید هستند "
+    "(محصول، مدل هوش مصنوعی، پژوهش، کشف یا رویداد تازه). خبر قدیمی‌تر، تحلیل کلی، مطلب آموزشی و تبلیغ نیاور. "
+    "حداکثر {n} خبر مهم‌ترِ متفاوت. فقط از منابع خبری معتبر بگیر و خودت لینک نساز.\n"
+    "هر خبر را دقیقاً در یک خط و به این قالب بنویس، بدون هیچ متن اضافه:\n"
+    "عنوان فارسی کوتاه | توضیح یک‌جمله‌ای فارسی | تاریخ انتشار (YYYY-MM-DD) | نام منبع\n"
+    "{avoid}"
+)
+
+
+def suggest_news(end_date, days=3, n=5, existing=()):
+    """خبرهای منتشرشده در بازهٔ [end_date - days, end_date] را پیشنهاد می‌دهد.
+    خروجی: (فهرست خبرها، متن بخش منابع). خبرِ بدون تاریخ معتبر یا خارج از بازه حذف می‌شود."""
+    start = end_date - dt.timedelta(days=days)
+    avoid = ("این عنوان‌ها قبلاً هستند؛ تکرارشان نکن: " + "؛ ".join(list(existing)[:15]) + "\n") if existing else ""
+    prompt = SUGGEST_PROMPT.format(start=start.isoformat(), end=end_date.isoformat(), n=n, avoid=avoid)
+    box = st.empty()
+    text = ask_ai(prompt, box)
+    box.empty()
+    if not text:
+        return None, ""
+    body, _, sources = text.partition("\n\n---\n")
+    items = []
+    for line in body.splitlines():
+        parts = [x.strip(" *-•\t") for x in line.split("|")]
+        if len(parts) < 4:
+            continue
+        m = re.search(r"\d{4}-\d{2}-\d{2}", parts[2])
+        if not m:
+            continue
+        try:
+            d = dt.date.fromisoformat(m.group(0))
+        except ValueError:
+            continue
+        if not (start <= d <= end_date):
+            continue
+        items.append({"title": parts[0], "desc": parts[1], "date": d.isoformat(), "source": parts[3]})
+    return items, sources
 
 
 def blocked_count():
