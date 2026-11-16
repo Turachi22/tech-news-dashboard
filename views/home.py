@@ -5,12 +5,14 @@ from components.calendar_card import render_calendar
 from components.ideas import render_ideas
 from components.stats_card import render_stats
 from components.workflow import render_workflow
+from core.daily import ensure_daily_news
 from core.helpers import header
 
 
 def render():
     header("داشبورد شخصی تولید محتوای تکنولوژی 🚀",
            "مدیریت هوشمند اخبار هفتگی و بخش دوم (دیپ‌دایو)")
+    ensure_daily_news()
     with st.container(key="layout_top"):
         col_flow, col_ideas = st.columns([2, 1], gap="medium")  # ستون اول = سمت چپ (و در موبایل بالاتر)
         with col_flow:
