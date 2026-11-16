@@ -15,7 +15,6 @@ from core.helpers import fa
 # ---------------------------------------------------------------------------
 PREFERRED_MODELS = [
     "gemini-1.5-flash",
-    "gemini-2.5-flash",
 ]
 # اگر True باشد و هیچ‌کدام از مدل‌های بالا کار نکرد، مدل‌های flash دیگرِ حساب شما هم امتحان می‌شوند.
 ALLOW_FALLBACK = False
