@@ -172,17 +172,47 @@ def _render_items(idxs, show_script):
         news_item(i, news[i], show_script)
 
 
-def render_workflow(show_script=False):
-    """جریان کاری هفتهٔ جاری."""
+def _week_range(w):
+    d = dt.date.fromisoformat(w)
+    return f"{fa(w)} تا {fa((d + dt.timedelta(days=6)).isoformat())}"
+
+
+def _week_nav():
+    """کلید «هفتهٔ قبل» (سمت چپ) و «هفتهٔ بعد» (سمت راست). برمی‌گرداند: شنبهٔ هفتهٔ انتخاب‌شده (ISO)."""
+    ss = st.session_state
+    off = max(-KEEP_PREVIOUS_WEEKS, min(0, ss.get("week_offset", 0)))
+    ss["week_offset"] = off
+    week = (dt.date.fromisoformat(current_week()) + dt.timedelta(weeks=off)).isoformat()
+    with st.container(key="keep_weeknav"):
+        c_next, c_mid, c_prev = st.columns([1, 1.3, 1])   # صفحه راست‌به‌چپ است: ستون اول سمت راست
+        if c_next.button("هفتهٔ بعد ▶", key="wk_next", disabled=(off >= 0), use_container_width=True):
+            ss["week_offset"] = off + 1
+            st.rerun()
+        c_mid.markdown(
+            f'<div style="text-align:center;font-size:.8rem;opacity:.85;padding-top:.45rem">'
+            f'{"هفتهٔ جاری" if off == 0 else f"{fa(-off)} هفته قبل"}</div>', unsafe_allow_html=True)
+        if c_prev.button("◀ هفتهٔ قبل", key="wk_prev", disabled=(off <= -KEEP_PREVIOUS_WEEKS),
+                         use_container_width=True):
+            ss["week_offset"] = off - 1
+            st.rerun()
+    return week, off
+
+
+def render_workflow(show_script=False, nav=False):
+    """جریان کاری. با nav=True بالای کارت کلید «هفتهٔ قبل / هفتهٔ بعد» هست و هفتهٔ جاری پیش‌فرض است."""
     news = st.session_state.news_list
-    idxs = _indices(current_week())
-    week_news = [news[i] for i in idxs]
-    total = len(week_news)
-    count = lambda s: sum(1 for n in week_news if n["status"] == s)  # noqa: E731
-    done = count("Approved")
-    pct = round(done / total * 100) if total else 0
     with st.container(border=True):
-        H('<div class="card-title">جریان کاری تأیید اخبار (هفتهٔ جاری)</div>')
+        week, off = _week_nav() if nav else (current_week(), 0)
+        idxs = _indices(week)
+        week_news = [news[i] for i in idxs]
+        total = len(week_news)
+        count = lambda s: sum(1 for n in week_news if n["status"] == s)  # noqa: E731
+        done = count("Approved")
+        pct = round(done / total * 100) if total else 0
+        title = "جریان کاری تأیید اخبار (هفتهٔ جاری)" if off == 0 else "جریان کاری تأیید اخبار (آرشیف هفته)"
+        H(f'<div class="card-title">{title}</div>')
+        if nav:
+            H(f'<div class="muted" style="margin-bottom:6px">📅 {_week_range(week)}</div>')
         H(f'<div class="progress"><div style="width:{pct}%"></div></div>'
           f'<div class="muted">{fa(done)} از {fa(total)} خبر تأیید شده · {fa(count("Rejected"))} رد شده</div>'
           '<div class="stepper">'
@@ -191,21 +221,5 @@ def render_workflow(show_script=False):
           f'<div class="step done">تأیید شده <b>{fa(done)}</b></div>'
           '</div>')
         if not idxs:
-            st.caption("هنوز خبری برای این هفته نیست.")
+            st.caption("خبری برای این هفته نیست.")
         _render_items(idxs, show_script)
-
-
-def render_previous_weeks(show_script=True):
-    """پنجرهٔ جدا برای هفته‌های قبل (هر هفته یک زبانه). فقط KEEP_PREVIOUS_WEEKS هفته نگه داشته می‌شود."""
-    cw = dt.date.fromisoformat(current_week())
-    weeks = [(cw - dt.timedelta(weeks=k)).isoformat() for k in range(1, KEEP_PREVIOUS_WEEKS + 1)]
-    weeks = [w for w in weeks if _indices(w)]
-    if not weeks:
-        return
-    with st.container(border=True):
-        H(f'<div class="card-title">📁 هفته‌های قبل (آرشیف {fa(KEEP_PREVIOUS_WEEKS)} هفته)</div>')
-        tabs = st.tabs([f"{fa(w)} تا {fa((dt.date.fromisoformat(w) + dt.timedelta(days=6)).isoformat())}"
-                        for w in weeks])
-        for tab, w in zip(tabs, weeks):
-            with tab:
-                _render_items(_indices(w), show_script)
