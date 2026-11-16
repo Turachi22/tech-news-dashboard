@@ -2,6 +2,7 @@
 import streamlit as st
 
 from core.ai import diagnose
+from core.auth import logout_button
 from core.backup import backup_section
 from core.helpers import header
 from core.state import ARCHIVE_DAYS, DATA_FILE
@@ -24,6 +25,8 @@ def render():
         st.caption(f"آرشیف تحقیق‌ها: {ARCHIVE_DAYS} روز پس از آخرین فعالیت هر خبر.")
         st.text_input("نام کانال یوتیوب", value="کانال ساده")
         st.selectbox("وضعیت بروزرسانی خودکار", ["فعال", "غیرفعال"])
+        st.divider()
+        logout_button()
         st.divider()
         backup_section()
         st.divider()
