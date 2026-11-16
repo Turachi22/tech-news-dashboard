@@ -15,15 +15,12 @@ from core.helpers import fa
 # ---------------------------------------------------------------------------
 # مدل‌های مجاز (رایگان) به ترتیب اولویت. برنامه اول مدل اول را امتحان می‌کند؛
 # اگر سهمیه‌اش تمام شد یا در دسترس نبود، مدل بعدی را.
-PREFERRED_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-2.5-pro",  # کندتر و با سهمیهٔ رایگان کم‌تر؛ آخرین گزینه
-]
-# اگر True باشد و هیچ‌کدام از مدل‌های بالا کار نکرد، مدل‌های flash دیگرِ حساب شما هم امتحان می‌شوند.
-ALLOW_FALLBACK = False
+# خالی = انتخاب خودکار: برنامه فهرست مدل‌های واقعی حساب شما را می‌خواند و جدیدترین flash را اول امتحان می‌کند.
+# مدل‌های قدیمی (۱٫۵ و ۲٫۰ و ۲٫۵) که گوگل برای حساب‌های جدید بسته، خودکار آخر صف می‌روند.
+# اگر خواستید مدل خاصی اول باشد، نامش را اینجا بنویسید، مثلاً ["gemini-3.5-flash"].
+PREFERRED_MODELS = []
+# اگر True باشد، مدل‌های flash حساب شما (بعد از مدل‌های بالا) امتحان می‌شوند.
+ALLOW_FALLBACK = True
 # تفکر داخلی مدل‌های ۲٫۵ (flash و flash-lite): 0 = خاموش (سریع‌تر و مصرف توکن کم‌تر)،
 # None = پیش‌فرض گوگل (دقیق‌تر ولی کندتر). مدل 2.5-pro و نسخه‌های 2.0 تحت‌تأثیر نیستند.
 THINKING_BUDGET = 0
@@ -114,7 +111,7 @@ def _discover(api_key):
             "omni", "computer", "native", "pro")
     flash = [n.replace("models/", "") for n in _list_models(api_key)
              if ("flash" in n or "gemma" in n) and not any(x in n for x in skip)]
-    flash.sort(key=lambda n: ("gemma" in n, "latest" in n, -_version(n), "lite" in n, "preview" in n, n))
+    flash.sort(key=lambda n: ("gemma" in n, _version(n) < 3, "latest" in n, -_version(n), "lite" in n, "preview" in n, n))
     return flash
 
 
@@ -367,7 +364,7 @@ def diagnose():
     for i, k in enumerate(keys, 1):
         st.markdown(f"**کلید {fa(i)}** (…{k[-4:]})")
         try:
-            models = _candidates(k)[:10]
+            models = _candidates(k)[:12]
         except Exception as exc:  # noqa: BLE001
             st.error(f"دریافت فهرست مدل‌ها ناموفق بود: {_brief(exc)}")
             continue
