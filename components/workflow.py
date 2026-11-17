@@ -71,7 +71,7 @@ def _research_block(idx, item):
                f"(پس از {fa(ARCHIVE_DAYS)} روز بدون فعالیت، خودکار حذف می‌شود)")
     for i, v in enumerate(versions):
         title = "بررسی اولیه" if not v.get("q") else v["q"][:60] + ("…" if len(v["q"]) > 60 else "")
-        with st.expander(f"نسخهٔ {fa(v['v'])} — {title} · {fa(v['ts'])}", expanded=(i == len(versions) - 1)):
+        with st.expander(f"نسخهٔ {fa(v['v'])} — {title} · {fa(v['ts'])}", expanded=False):
             st.markdown(v["text"])
             info = " · ".join(x for x in (v.get("model"), f"{fa(v['secs'])} ثانیه" if v.get("secs") else "") if x)
             if info:
@@ -248,8 +248,10 @@ def _week_nav():
     return week, off
 
 
-def render_workflow(show_script=False, nav=False):
-    """جریان کاری. با nav=True بالای کارت کلید «هفتهٔ قبل / هفتهٔ بعد» هست و هفتهٔ جاری پیش‌فرض است."""
+def render_workflow(show_script=False, nav=False, tabs=False):
+    """جریان کاری. با nav=True بالای کارت کلید «هفتهٔ قبل / هفتهٔ بعد» هست و هفتهٔ جاری پیش‌فرض است.
+    با tabs=True خبرها در سه زبانه می‌آیند: تأیید شده، رد شده، در انتظار (خبرِ «در حال بررسی» هم در انتظار است؛
+    اگر بعد از بررسی رد شود، به «رد شده» می‌رود)."""
     news = st.session_state.news_list
     with st.container(border=True):
         week, off = _week_nav() if nav else (current_week(), 0)
@@ -270,6 +272,18 @@ def render_workflow(show_script=False, nav=False):
           f'<div class="step review">بررسی <b>{fa(count("Reviewing"))}</b></div><span class="arrow">←</span>'
           f'<div class="step done">تأیید شده <b>{fa(done)}</b></div>'
           '</div>')
-        if not idxs:
-            st.caption("خبری برای این هفته نیست.")
-        _render_items(idxs, show_script)
+        if not tabs:
+            if not idxs:
+                st.caption("خبری برای این هفته نیست.")
+            _render_items(idxs, show_script)
+            return
+        # برچسب زبانه‌ها ثابت است (بدون عدد) تا با تأیید/ردِ یک خبر، زبانهٔ انتخاب‌شده عوض نشود
+        groups = [("✅ تأیید شده", lambda st_: st_ == "Approved"),
+                  ("✖ رد شده", lambda st_: st_ == "Rejected"),
+                  ("⏳ در انتظار", lambda st_: st_ not in ("Approved", "Rejected"))]
+        for tab, (label, match) in zip(st.tabs([g[0] for g in groups]), groups):
+            with tab:
+                sub = [i for i in idxs if match(news[i]["status"])]
+                st.caption(f"{fa(len(sub))} خبر")
+                if sub:
+                    _render_items(sub, show_script)
