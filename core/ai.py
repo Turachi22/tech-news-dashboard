@@ -237,12 +237,22 @@ def _stream(client, model_name, prompt, box, use_search=True):
     return text
 
 
-def _run(client, name, prompt, box, kid=""):
+class SearchUnavailable(Exception):
+    """جستجوی وب در دسترس نیست و کار فعلی بدون جستجو معنی ندارد (مثل پیشنهاد خبر تازه)."""
+
+
+def _search_blocked(kid):
+    return _blocked().get(f"{kid}:search", 0) > time.time()
+
+
+def _run(client, name, prompt, box, kid="", need_search=False):
     """با جست‌وجو اجرا می‌کند. اگر ۴۲۹ یا خطای جست‌وجو آمد، همان مدل را بدون جست‌وجو امتحان می‌کند
     (سهمیهٔ جست‌وجوی گوگل جدا و کوچک است و بین همهٔ مدل‌های یک کلید مشترک). اگر بدون جست‌وجو جواب داد،
     جست‌وجو برای همان کلید ۲ ساعت کنار می‌رود تا درخواست‌های بعدی بی‌جهت خطا نخورند."""
     skey = f"{kid}:search"
     if "gemma" in name or _blocked().get(skey, 0) > time.time():
+        if need_search:
+            raise SearchUnavailable()
         return _stream(client, name, prompt, box, use_search=False)
     try:
         return _stream(client, name, prompt, box)
@@ -251,6 +261,9 @@ def _run(client, name, prompt, box, kid=""):
         if "limit: 0" in low and not any(w in low for w in ("grounding", "search")):
             raise  # خود مدل در پلن رایگان نیست؛ امتحان بدون جست‌وجو بی‌فایده است
         if _is_quota(low) or any(w in low for w in ("google_search", "grounding", "googlesearch", "search")):
+            if need_search:
+                _blocked()[skey] = time.time() + 7200
+                raise SearchUnavailable() from exc
             text = _stream(client, name, prompt, box, use_search=False)  # اگر این هم خطا داد، بالا می‌رود
             _blocked()[skey] = time.time() + 7200
             st.warning("سهمیهٔ جست‌وجوی وب (برای لینک منبع) روی این کلید تمام یا در دسترس نبود؛ "
@@ -268,7 +281,7 @@ def _retryable(exc):
                                       "api_key_invalid", "api key not valid", "permission_denied")))
 
 
-def ask_ai(prompt, box=None):
+def ask_ai(prompt, box=None, need_search=False):
     """جدیدترین مدل رایگان را با کلیدها به‌نوبت امتحان می‌کند؛ بعد سراغ مدل قدیمی‌تر می‌رود."""
     ss = st.session_state
     keys = _get_keys()
@@ -281,6 +294,10 @@ def ask_ai(prompt, box=None):
     if usage_today() >= DAILY_REQUEST_LIMIT:
         st.error(f"سقف {fa(DAILY_REQUEST_LIMIT)} درخواست در روز پر شده است (برای حفظ سهمیهٔ رایگان). "
                  "اگر لازم است، DAILY_REQUEST_LIMIT را در core/ai.py بالا ببرید.")
+        return None
+    if need_search and all(_search_blocked(k[-4:]) for k in keys):
+        st.warning("جستجوی وب (سهمیهٔ جستجوی گوگل) فعلاً در دسترس نیست. پیشنهاد خبر تازه بدون جستجو ساخته نمی‌شود، "
+                   "چون مدل ممکن است خبر ساختگی بدهد. بعداً دوباره امتحان کنید یا خبر را دستی اضافه کنید.")
         return None
     ss["_last_ai_call"] = time.time()
     box = box if box is not None else st.empty()
@@ -296,7 +313,7 @@ def ask_ai(prompt, box=None):
         st.error(f"دریافت فهرست مدل‌ها ناموفق بود (کلیدها را بررسی کنید): {str(list_err)[:300]}")
         return None
 
-    skipped, last_err, tries = [], None, 0
+    skipped, last_err, tries, search_fail = [], None, 0, False
     status = st.status("در حال جست‌وجو و تحقیق...", expanded=False)
     for name in all_models:
         if tries >= MAX_ATTEMPTS_PER_CLICK:
@@ -311,7 +328,10 @@ def ask_ai(prompt, box=None):
             tries += 1
             status.update(label=f"در حال جست‌وجو و تحقیق با «{short}» (کلید {fa(idx + 1)})...", state="running")
             try:
-                text = _run(genai.Client(api_key=key), name, prompt, box, kid)
+                text = _run(genai.Client(api_key=key), name, prompt, box, kid, need_search)
+            except SearchUnavailable:
+                search_fail = True
+                continue
             except Exception as exc:  # noqa: BLE001
                 last_err = exc
                 if _retryable(exc):
@@ -330,6 +350,11 @@ def ask_ai(prompt, box=None):
                 st.info(f"از {'، '.join(skipped)} عبور شد؛ پاسخ با «{short}» و کلید {fa(idx + 1)} آمد.")
             return text
 
+    if search_fail and not skipped:
+        status.update(label="جستجوی وب در دسترس نیست", state="error")
+        st.warning("جستجوی وب (سهمیهٔ جستجوی گوگل) در دسترس نبود. پیشنهاد خبر تازه بدون جستجو ساخته نمی‌شود، "
+                   "چون مدل ممکن است خبر ساختگی بدهد. بعداً دوباره امتحان کنید یا خبر را دستی اضافه کنید.")
+        return None
     if not skipped:  # همهٔ ترکیب‌ها از قبل کنار گذاشته شده بودند
         status.update(label="همهٔ مدل‌ها فعلاً در انتظار سهمیه‌اند", state="error")
         now = time.time()
@@ -367,7 +392,7 @@ def suggest_news(end_date, days=3, n=5, existing=()):
     avoid = ("این عنوان‌ها قبلاً هستند؛ تکرارشان نکن: " + "؛ ".join(list(existing)[:15]) + "\n") if existing else ""
     prompt = SUGGEST_PROMPT.format(start=start.isoformat(), end=end_date.isoformat(), n=n, avoid=avoid)
     box = st.empty()
-    text = ask_ai(prompt, box)
+    text = ask_ai(prompt, box, need_search=True)
     box.empty()
     if not text:
         return None, ""
