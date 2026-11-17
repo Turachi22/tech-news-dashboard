@@ -1,4 +1,5 @@
-"""جست‌وجوی وب با Groq (groq/compound) — بدون کتابخانهٔ اضافه (فقط urllib).
+"""جست‌وجوی وب با Groq (مدل openai/gpt-oss با ابزار browser_search) — بدون کتابخانهٔ اضافه (فقط urllib).
+(سیستم‌های groq/compound و compound-mini طبق اعلام Groq از ۲۱ سپتامبر ۲۰۲۶ از رده خارج شده‌اند.)
 
 Groq فقط «جست‌وجو و جمع‌آوری منبع» را انجام می‌دهد؛ نوشتن متن فارسی با Gemini است.
 کلید در Streamlit Secrets با نام GROQ_API_KEY گذاشته می‌شود. اگر کلید نباشد یا Groq خطا بدهد،
@@ -12,7 +13,8 @@ import urllib.request
 import streamlit as st
 
 URL = "https://api.groq.com/openai/v1/chat/completions"
-MODELS = ["groq/compound", "groq/compound-mini"]   # اگر اولی خطا داد، دومی
+MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]   # هر دو ابزار browser_search دارند؛ اگر اولی خطا داد، دومی
+MAX_OUT_TOKENS = 2500   # سقف خروجی؛ پلن رایگان سقف توکن در دقیقه دارد
 TIMEOUT = 120
 SYSTEM = ("You are a careful web research assistant. Use web search. Report only what you actually found in "
           "sources; never invent facts, dates or links. Always name the source of each claim.")
@@ -62,16 +64,28 @@ def _post(body, key):
         raise GroqError(f"{type(e).__name__}: {str(e)[:200]}") from e
 
 
+def _walk(o, out, depth=0):
+    """هر دیکشنری‌ای که url داشته باشد را (از دادهٔ ساخت‌یافتهٔ ابزار، نه از متن مدل) جمع می‌کند."""
+    if depth > 8:
+        return
+    if isinstance(o, dict):
+        url = o.get("url")
+        if isinstance(url, str) and url.startswith("http"):
+            title = o.get("title") or o.get("name") or url
+            content = o.get("content") or o.get("text") or o.get("snippet") or o.get("description") or ""
+            out.setdefault(url, {"title": str(title).strip()[:200], "content": str(content).strip()})
+        for v in o.values():
+            _walk(v, out, depth + 1)
+    elif isinstance(o, list):
+        for v in o:
+            _walk(v, out, depth + 1)
+
+
 def _sources(message):
-    """لینک‌ها و خلاصهٔ محتوای نتایج جست‌وجو از executed_tools؛ {url: {title, content}}."""
+    """لینک‌ها و خلاصهٔ محتوای نتایج جست‌وجو؛ {url: {title, content}}. فقط از دادهٔ ابزار/ارجاع‌ها، نه از متن مدل."""
     out = {}
-    for tool in message.get("executed_tools") or []:
-        sr = (tool or {}).get("search_results") or {}
-        results = sr.get("results") if isinstance(sr, dict) else sr
-        for r in results or []:
-            if isinstance(r, dict) and r.get("url"):
-                out.setdefault(r["url"], {"title": (r.get("title") or r["url"]).strip(),
-                                          "content": (r.get("content") or "").strip()})
+    for key in ("executed_tools", "annotations", "citations"):
+        _walk(message.get(key), out)
     return out
 
 
@@ -99,39 +113,38 @@ def search(prompt):
         raise GroqError(f"Groq موقتاً کنار گذاشته شده ({_state()['why']})")
     last = None
     for model in MODELS:
-        body = {"model": model, "temperature": 0.3,
-                "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-                "compound_custom": {"tools": {"enabled_tools": ["web_search"]}}}
+        body = {"model": model, "temperature": 0.3, "max_completion_tokens": MAX_OUT_TOKENS,
+                "tool_choice": "required", "tools": [{"type": "browser_search"}],
+                "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]}
         try:
-            try:
-                data = _post(body, key)
-            except GroqError as e:
-                if e.code != 400:
-                    raise
-                body.pop("compound_custom")      # اگر این پارامتر پذیرفته نشد، بدونش
-                data = _post(body, key)
+            data = _post(body, key)
             msg = (data.get("choices") or [{}])[0].get("message") or {}
             text = (msg.get("content") or "").strip()
             if not text:
                 raise GroqError("پاسخ خالی از Groq")
+            try:
+                _state()["raw"] = json.dumps(msg.get("executed_tools"), ensure_ascii=False)[:1200]
+            except Exception:  # noqa: BLE001
+                _state()["raw"] = ""
             return text, _sources(msg)
         except GroqError as e:
             last = e
-            if e.code in (0, 404, 429, 500, 502, 503):
-                continue      # مدل بعدی (compound-mini)
+            if e.code in (0, 400, 404, 413, 429, 500, 502, 503):
+                continue      # مدل بعدی
             break
     _block(last)
     raise last
 
 
 def ping():
-    """تست سریع برای صفحهٔ تنظیمات: (True/False، توضیح)."""
-    key = groq_key()
-    if not key:
+    """تست برای صفحهٔ تنظیمات: (True/False، توضیح). یک جست‌وجوی واقعی و کوچک می‌زند و تعداد لینک‌ها را می‌گوید."""
+    if not groq_key():
         return False, "GROQ_API_KEY در Secrets نیست"
     try:
-        data = _post({"model": MODELS[1], "max_tokens": 5,
-                      "messages": [{"role": "user", "content": "Reply with: OK"}]}, key)
-        return True, (data["choices"][0]["message"].get("content") or "").strip()[:40]
+        text, srcs = search("List 2 recent technology news headlines from the last few days, with source names.")
     except GroqError as e:
-        return False, str(e)[:400]
+        return False, str(e)[:500]
+    info = f"پاسخ {len(text)} نویسه، {len(srcs)} لینک منبع از ابزار"
+    if not srcs:
+        info += " | ساختار executed_tools: " + (_state().get("raw") or "(خالی)")[:600]
+    return True, info
