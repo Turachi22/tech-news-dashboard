@@ -29,6 +29,12 @@ ALLOW_FALLBACK = False
 # None = پیش‌فرض گوگل (دقیق‌تر ولی کندتر). مدل 2.5-pro و نسخه‌های 2.0 تحت‌تأثیر نیستند.
 THINKING_BUDGET = 0
 
+# اولویت جست‌وجو برای «بررسی خبر» و «پیشنهاد روزانه»:
+#   "gemini" = اول جست‌وجوی خود Gemini (گوگل)؛ اگر سهمیهٔ جست‌وجویش تمام بود، خودکار Groq.
+#   "groq"   = اول Groq (جست‌وجو) و Gemini فقط برای نوشتن؛ اگر Groq نبود، Gemini با جست‌وجوی خودش.
+# (دکمهٔ «بررسی عمیق نظریه‌های توطئه» همیشه اول با Groq کار می‌کند.)
+SEARCH_PRIORITY = "gemini"
+
 # --- محافظ مصرف (برای جلوگیری از هدر رفتن سهمیهٔ رایگان) ---
 MAX_ATTEMPTS_PER_CLICK = 8      # حداکثر تعداد تلاش (ترکیب مدل × کلید) برای یک کلیک
 MIN_SECONDS_BETWEEN_CALLS = 8   # فاصلهٔ حداقل بین دو درخواست پشت‌سرهم
@@ -49,7 +55,11 @@ NEWS_RULES = (
 NEWS_STRUCTURE = (
     "قالب پاسخ (دقیقاً با همین عنوان‌ها و به‌صورت مارک‌داون؛ فقط مهم‌ترین و ضروری‌ترین اطلاعات؛ بدون مقدمه، "
     "بدون جملهٔ تکراری و بدون هیچ توضیحی دربارهٔ خودِ گزارش):\n"
-    "## ۱) خلاصهٔ ساده\nحداکثر ۴ جمله برای مخاطب عمومی (سطح کلاس ششم).\n"
+    "## ۱) خلاصهٔ ساده\n"
+    "۸ تا ۱۲ جمله برای مخاطب عمومی (سطح کلاس ششم)، در این ترتیب: اول ماجرا چیست و چه اتفاقی افتاد؛ بعد چرا مهم است "
+    "و چه تأثیری روی زندگی آدم‌ها دارد؛ هر اصطلاح فنی را همان‌جا با یک جملهٔ ساده توضیح بده؛ و در پایان یک مثال "
+    "ملموس از زندگی روزمره یا یک تشبیه ساده بیاور که مفهوم اصلی خبر را قابل‌فهم کند، با برچسب «**مثال:**» "
+    "(مثال فقط برای فهم است و نباید ادعای واقعیِ تازه‌ای باشد).\n"
     "## ۲) حقایق و آمار کلیدی\nحداکثر ۶ نقطه (• ...)؛ هر کدام یک خط شامل عدد/تاریخ/نام و ارجاع به منبع.\n"
     "## ۳) پیشینه\nحداکثر ۳ نقطه.\n"
     "## ۴) محدودیت‌ها و میزان اطمینان\nحداکثر ۴ نقطه؛ آخرین نقطه: اطمینان کلی (زیاد/متوسط/کم) با یک دلیل.\n"
@@ -336,7 +346,7 @@ def _retryable(exc):
                                       "api_key_invalid", "api key not valid", "permission_denied")))
 
 
-def ask_ai(prompt, box=None, need_search=False, ext_sources=None):
+def ask_ai(prompt, box=None, need_search=False, ext_sources=None, quiet=False):
     """جدیدترین مدل رایگان را با کلیدها به‌نوبت امتحان می‌کند؛ بعد سراغ مدل قدیمی‌تر می‌رود."""
     ss = st.session_state
     keys = _get_keys()
@@ -351,8 +361,9 @@ def ask_ai(prompt, box=None, need_search=False, ext_sources=None):
                  "اگر لازم است، DAILY_REQUEST_LIMIT را در core/ai.py بالا ببرید.")
         return None
     if need_search and ext_sources is None and all(_search_blocked(k[-4:]) for k in keys):
-        st.warning("جستجوی وب (سهمیهٔ جستجوی گوگل) فعلاً در دسترس نیست. پیشنهاد خبر تازه بدون جستجو ساخته نمی‌شود، "
-                   "چون مدل ممکن است خبر ساختگی بدهد. بعداً دوباره امتحان کنید یا خبر را دستی اضافه کنید.")
+        if not quiet:
+            st.warning("جستجوی وب (سهمیهٔ جستجوی گوگل) فعلاً در دسترس نیست. پیشنهاد خبر تازه بدون جستجو ساخته نمی‌شود، "
+                       "چون مدل ممکن است خبر ساختگی بدهد. بعداً دوباره امتحان کنید یا خبر را دستی اضافه کنید.")
         return None
     ss["_last_ai_call"] = time.time()
     box = box if box is not None else st.empty()
@@ -416,9 +427,12 @@ def ask_ai(prompt, box=None, need_search=False, ext_sources=None):
             return text
 
     if search_fail and not skipped:
-        status.update(label="جستجوی وب در دسترس نیست", state="error")
-        st.warning("جستجوی وب (سهمیهٔ جستجوی گوگل) در دسترس نبود. پیشنهاد خبر تازه بدون جستجو ساخته نمی‌شود، "
-                   "چون مدل ممکن است خبر ساختگی بدهد. بعداً دوباره امتحان کنید یا خبر را دستی اضافه کنید.")
+        if quiet:
+            status.update(label="جستجوی گوگل در دسترس نیست؛ روش جایگزین...", state="complete")
+        else:
+            status.update(label="جستجوی وب در دسترس نیست", state="error")
+            st.warning("جستجوی وب (سهمیهٔ جستجوی گوگل) در دسترس نبود. پیشنهاد خبر تازه بدون جستجو ساخته نمی‌شود، "
+                       "چون مدل ممکن است خبر ساختگی بدهد. بعداً دوباره امتحان کنید یا خبر را دستی اضافه کنید.")
         return None
     if not skipped:  # همهٔ ترکیب‌ها از قبل کنار گذاشته شده بودند
         status.update(label="همهٔ مدل‌ها فعلاً در انتظار سهمیه‌اند", state="error")
@@ -483,6 +497,7 @@ FROM_SOURCES_RULES = (
     "(هر منبع یک شماره دارد). فقط بر اساس همین مواد بنویس. هر عدد، تاریخ، نقل‌قول و ادعا باید با ارجاع شماره‌ای "
     "مثل [3] یا [2][5] همراه باشد؛ چیزی که در مواد نیست نیاور، حتی اگر خودت می‌دانی. "
     "تاریخ امروز {today} است؛ تاریخی بعد از امروز را فقط اگر صریحاً در مواد آمده باشد بیاور و کنارش بنویس «طبق منبع». "
+    "فقط «مثال:» در بخش خلاصهٔ ساده می‌تواند از خودت باشد (تشبیه ساده، بدون ادعای واقعی تازه). "
     "فارسی روان و بدون غلط املایی؛ هیچ عبارت داخل کروشه جز ارجاع‌های شماره‌ای ننویس؛ لینک نساز.\n\n"
 )
 
@@ -528,10 +543,17 @@ def _groq_note(exc):
     st.info(f"Groq در دسترس نبود ({str(exc)[:120]}). با روش جایگزین (Gemini) ادامه می‌دهیم.")
 
 
-def _hybrid(groq_prompt, gemini_body, fallback_prompt, box=None):
+def _hybrid(groq_prompt, gemini_body, fallback_prompt, box=None, gemini_first=False):
     """Groq جست‌وجو می‌کند → Gemini (بدون جست‌وجو) از روی مواد می‌نویسد، ارجاع‌های [n] به لینک تبدیل می‌شوند.
     اگر Groq نبود یا خطا داد، fallback_prompt با Gemini (و جست‌وجوی خودش)."""
-    if groq_client.available():
+    groq_ok = groq_client.available()
+    if gemini_first and groq_ok:
+        # اول جست‌وجوی خود Gemini (اگر سهمیهٔ جست‌وجو برگشته باشد)؛ اگر نشد، ادامه با Groq
+        out = ask_ai(fallback_prompt, box, need_search=True, quiet=True)
+        if out:
+            return out
+        st.session_state["_last_ai_call"] = 0   # درخواست بعدی به‌خاطر فاصلهٔ حداقل رد نشود
+    if groq_ok:
         ph = st.empty()
         ph.caption("🔎 در حال جست‌وجوی منابع...")
         try:
@@ -556,7 +578,8 @@ def research_news(title, desc, box=None):
     """تحقیق یک خبر (قالب ۶ بخشی، کوتاه و مارک‌داون، با بخش مفصل نظریه‌های توطئه)."""
     return _hybrid(GROQ_NEWS_PROMPT.format(title=title, desc=desc),
                    NEWS_STRUCTURE.format(title=title, desc=desc),
-                   NEWS_PROMPT.format(title=title, desc=desc), box)
+                   NEWS_PROMPT.format(title=title, desc=desc), box,
+                   gemini_first=(SEARCH_PRIORITY == "gemini"))
 
 
 def research_conspiracies(title, desc, box=None):
@@ -599,23 +622,36 @@ def suggest_news(end_date, days=3, n=5, existing=()):
     start = end_date - dt.timedelta(days=days)
     avoid = ("این عنوان‌ها قبلاً هستند؛ تکرارشان نکن: " + "؛ ".join(list(existing)[:15]) + "\n") if existing else ""
     box = st.empty()
-    text, used_groq = None, False
-    if groq_client.available():
+    gem_prompt = SUGGEST_PROMPT.format(start=start.isoformat(), end=end_date.isoformat(), n=n, avoid=avoid)
+    text, groq_done = None, False
+    groq_ok = groq_client.available()
+    if SEARCH_PRIORITY == "gemini":
+        # اول جست‌وجوی خود Gemini (بی‌صدا اگر Groq هم هست)؛ فقط با جست‌وجوی واقعی، نه از حافظهٔ مدل
+        text = ask_ai(gem_prompt, box, need_search=True, quiet=groq_ok)
+        if text:
+            box.empty()
+            return _parse_suggestions(text, start, end_date)
+        st.session_state["_last_ai_call"] = 0
+    if groq_ok:
         try:
             gtext, srcs = _groq_cached(GROQ_SUGGEST_PROMPT.format(
                 n=n, start=start.isoformat(), end=end_date.isoformat(), avoid=avoid))
             if not srcs:
                 raise GroqError("Groq لینک منبعی برنگرداند")
-            used_groq = True
+            groq_done = True
             prompt = SUGGEST_FROM_SOURCES.format(n=n, start=start.isoformat(), end=end_date.isoformat(),
                                                  avoid=avoid) + _materials(gtext, srcs)
             text = ask_ai(prompt, box, ext_sources=[(u, m["title"]) for u, m in srcs.items()])
         except GroqError as exc:
             _groq_note(exc)
-    if not used_groq:
-        prompt = SUGGEST_PROMPT.format(start=start.isoformat(), end=end_date.isoformat(), n=n, avoid=avoid)
-        text = ask_ai(prompt, box, need_search=True)
+    if not groq_done and not text and SEARCH_PRIORITY != "gemini":
+        text = ask_ai(gem_prompt, box, need_search=True)
     box.empty()
+    return _parse_suggestions(text, start, end_date) if text else (None, "")
+
+
+def _parse_suggestions(text, start, end_date):
+    """خطوط «عنوان | توضیح | تاریخ | منبع» را می‌خواند و فقط خبرهای داخل بازهٔ تاریخ را نگه می‌دارد."""
     if not text:
         return None, ""
     body, _, sources = text.partition("\n\n---\n")
