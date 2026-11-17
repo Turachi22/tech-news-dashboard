@@ -392,7 +392,7 @@ def ask_ai(prompt, box=None, need_search=False, ext_sources=None):
 GROQ_NEWS_PROMPT = (
     "Research this technology news item using web search (search in both English and Persian).\n"
     "News item: {title} - {desc}\n\n"
-    "Report as plain text, thoroughly (no length limit), with these parts: key facts (numbers, dates, names, "
+    "Report as concise plain-text research notes (about 600-900 words), with these parts: key facts (numbers, dates, names, "
     "companies); technical details; background and context; limitations, controversies and criticism; and any "
     "conspiracy theories or unverified rumors circulating about it (clearly mark them as unverified and say who "
     "spreads them). Name the source of every claim and give the publication date where known. "
