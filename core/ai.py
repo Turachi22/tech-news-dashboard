@@ -238,8 +238,10 @@ def _stream(client, model_name, prompt, box, use_search=True):
 
 
 def _run(client, name, prompt, box, kid=""):
-    """با جست‌وجو اجرا می‌کند؛ اگر جست‌وجو/سهمیهٔ آن مشکل داشت، همان مدل را بدون جست‌وجو امتحان می‌کند."""
-    skey = f"{kid}:{name}:search"
+    """با جست‌وجو اجرا می‌کند. اگر ۴۲۹ یا خطای جست‌وجو آمد، همان مدل را بدون جست‌وجو امتحان می‌کند
+    (سهمیهٔ جست‌وجوی گوگل جدا و کوچک است و بین همهٔ مدل‌های یک کلید مشترک). اگر بدون جست‌وجو جواب داد،
+    جست‌وجو برای همان کلید ۲ ساعت کنار می‌رود تا درخواست‌های بعدی بی‌جهت خطا نخورند."""
+    skey = f"{kid}:search"
     if "gemma" in name or _blocked().get(skey, 0) > time.time():
         return _stream(client, name, prompt, box, use_search=False)
     try:
@@ -248,11 +250,12 @@ def _run(client, name, prompt, box, kid=""):
         low = str(exc).lower()
         if "limit: 0" in low and not any(w in low for w in ("grounding", "search")):
             raise  # خود مدل در پلن رایگان نیست؛ امتحان بدون جست‌وجو بی‌فایده است
-        search_issue = any(w in low for w in ("google_search", "grounding", "googlesearch"))
-        if search_issue:
+        if _is_quota(low) or any(w in low for w in ("google_search", "grounding", "googlesearch", "search")):
             text = _stream(client, name, prompt, box, use_search=False)  # اگر این هم خطا داد، بالا می‌رود
-            _blocked()[skey] = time.time() + 3600
-            st.warning("جست‌وجوی وب (برای لینک منبع) روی این کلید/مدل در دسترس نبود؛ پاسخ بدون لینک تولید شد.")
+            _blocked()[skey] = time.time() + 7200
+            st.warning("سهمیهٔ جست‌وجوی وب (برای لینک منبع) روی این کلید تمام یا در دسترس نبود؛ "
+                       "پاسخ بدون لینک تولید شد. برای لینک واقعی از «✋ بدون API» استفاده کنید "
+                       "یا بعداً دوباره امتحان کنید.")
             return text
         raise
 
@@ -395,6 +398,9 @@ def quota_status():
         if t <= now:
             continue
         kid, _, name = k.partition(":")
+        if name == "search":
+            rows.append((kid, "جستجوی وب", t - now, "سهمیهٔ جستجو تمام شده؛ پاسخ‌ها بدون لینک تولید می‌شوند"))
+            continue
         if name == "*":
             why = "کلید نامعتبر یا بدون دسترسی"
         else:
@@ -446,4 +452,14 @@ def diagnose():
                 rows.append(f"❌ {short} — {_brief(exc)}")
             bar.progress(j / max(len(models), 1))
         bar.empty()
+        # آزمایش جداگانهٔ جست‌وجوی وب (سهمیهٔ جدا از خود مدل)
+        if models:
+            _count_request()
+            try:
+                client.models.generate_content(
+                    model=models[0], contents="Reply with: OK",
+                    config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())]))
+                rows.append("🔎 جستجوی وب: ✅ کار می‌کند")
+            except Exception as exc:  # noqa: BLE001
+                rows.append(f"🔎 جستجوی وب: ❌ — {str(exc)[:400].replace(chr(10), ' ')}")
         st.code("\n".join(rows) or "مدلی پیدا نشد", language=None)
