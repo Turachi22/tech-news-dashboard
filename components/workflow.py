@@ -4,7 +4,7 @@ import time
 
 import streamlit as st
 
-from core.ai import NEWS_PROMPT, RESEARCH_RULES, ask_ai, build_followup_prompt, research_news
+from core.ai import NEWS_STRUCTURE, ask_ai, build_followup_prompt, research_conspiracies, research_news
 from core.export import DOCX_MIME, HAS_DOCX, make_docx
 from core.helpers import H, chip, esc, fa
 from core.state import (ARCHIVE_DAYS, KEEP_PREVIOUS_WEEKS, WEEKDAY_FA, current_week, days_left,
@@ -77,6 +77,14 @@ def _research_block(idx, item):
             if info:
                 st.caption(info)
 
+    if st.button("🕵️ بررسی عمیق‌تر نظریه‌های توطئه", key=f"cons_{idx}",
+                 help="یک جست‌وجوی جداگانه فقط برای نظریه‌ها و شایعات؛ نتیجه به‌عنوان نسخهٔ جدید ذخیره می‌شود"):
+        t0 = time.time()
+        text = research_conspiracies(item["title"], item["desc"])
+        if text:
+            _add_version(item, "نظریه‌های توطئه (بررسی عمیق)", text, round(time.time() - t0, 1))
+            st.rerun()
+
     with st.expander("💬 سؤال یا درخواست اطلاعات بیشتر"):
         with st.form(f"chat_{idx}", clear_on_submit=True):
             q = st.text_area("سؤال شما از Gemini", height=90,
@@ -91,17 +99,16 @@ def _research_block(idx, item):
 
 
 MANUAL_RULES = (
-    "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب تحقیق کن و پاسخ را به زبان فارسی، "
-    "کامل و دقیق و با جزئیات بنویس. اعداد، تاریخ‌ها، نام افراد و شرکت‌ها را بیاور و هر ادعای مهم را با نام منبع "
-    "همراه کن. در پایان بخشی به نام «منابع» با لینک واقعی صفحه‌هایی که واقعاً خوانده‌ای بیاور؛ هرگز لینک نساز. "
+    "تو ویراستار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب تحقیق کن و فقط مهم‌ترین و ضروری‌ترین "
+    "اطلاعات را به فارسی روان بنویس. اعداد، تاریخ‌ها و نام‌ها را بیاور و هر ادعای مهم را با نام منبعش همراه کن. "
+    "در پایان بخشی به نام «منابع» با لینک واقعی صفحه‌هایی که واقعاً خوانده‌ای بیاور؛ هرگز لینک نساز. "
     "اگر دربارهٔ درستی چیزی مطمئن نیستی، صریحاً بگو.\n\n"
 )
 
 
 def manual_prompt(item):
-    """همان ساختار پرامپت اپ، ولی برای چسباندن در چت Gemini (لینک منابع را خود چت می‌نویسد)."""
-    body = NEWS_PROMPT[len(RESEARCH_RULES):].format(title=item["title"], desc=item["desc"])
-    return MANUAL_RULES + body
+    """همان قالب اپ، ولی برای چسباندن در چت Gemini (لینک منابع را خود چت می‌نویسد)."""
+    return MANUAL_RULES + NEWS_STRUCTURE.format(title=item["title"], desc=item["desc"])
 
 
 def _save_manual(idx):
