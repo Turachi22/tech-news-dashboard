@@ -8,6 +8,8 @@ from google import genai
 from google.genai import types
 import streamlit as st
 
+from core import groq_client
+from core.groq_client import GroqError
 from core.helpers import fa
 
 # ---------------------------------------------------------------------------
@@ -41,7 +43,9 @@ RESEARCH_RULES = (
 NEWS_PROMPT = RESEARCH_RULES + (
     "ساختار پاسخ: ۱) توضیح ساده برای مخاطب عمومی (سطح کلاس ششم)؛ ۲) جزئیات فنی و آمار؛ "
     "۳) پیشینه و زمینهٔ خبر؛ ۴) محدودیت‌ها، مناقشه‌ها و میزان اطمینان به درستی خبر؛ "
-    "۵) چند زاویهٔ پیشنهادی برای ویدیو.\nخبر: {title} — {desc}"
+    "۵) چند زاویهٔ پیشنهادی برای ویدیو؛ ۶) در بخش آخر: نظریه‌ها و شایعات توطئه‌آمیز مرتبط با این خبر، "
+    "با برچسب «ادعای اثبات‌نشده»، گوینده یا ترویج‌کنندهٔ اصلی هر ادعا و میزان مستند بودن آن؛ این ادعاها را "
+    "هرگز به‌عنوان حقیقت بیان نکن و اگر موردی نیست همین را صریحاً بنویس.\nخبر: {title} — {desc}"
 )
 DEEP_PROMPT = RESEARCH_RULES + (
     "برای یک مینی‌مستند تکنولوژی دربارهٔ موضوع زیر اطلاعات پس‌زمینه، تاریخچه، حقایق کلیدی، "
@@ -204,7 +208,7 @@ def _block(kid, name, exc):
     _blocked()[f"{kid}:{name}"] = time.time() + secs
 
 
-def _stream(client, model_name, prompt, box, use_search=True):
+def _stream(client, model_name, prompt, box, use_search=True, ext_sources=None):
     _count_request()
     kwargs = dict(
         temperature=0.4,
@@ -226,7 +230,13 @@ def _stream(client, model_name, prompt, box, use_search=True):
         except (AttributeError, IndexError, TypeError):
             pass
         box.markdown(text + " ▌")
-    if sources:
+    if ext_sources is not None:
+        if ext_sources:
+            text += "\n\n---\n**منابع (لینک‌های واقعی از جست‌وجوی Groq):**\n" + "\n".join(
+                f"{i}. [{title}]({uri})" for i, (uri, title) in enumerate(ext_sources, 1))
+        else:
+            text += "\n\n---\n⚠️ جست‌وجو لینکی برنگرداند؛ اطلاعات را پیش از انتشار راستی‌آزمایی کنید."
+    elif sources:
         text += "\n\n---\n**منابع (لینک‌های واقعی از جست‌وجوی گوگل):**\n" + "\n".join(
             f"{i}. [{title}]({uri})" for i, (uri, title) in enumerate(sources.items(), 1))
     elif use_search:
@@ -245,10 +255,12 @@ def _search_blocked(kid):
     return _blocked().get(f"{kid}:search", 0) > time.time()
 
 
-def _run(client, name, prompt, box, kid="", need_search=False):
+def _run(client, name, prompt, box, kid="", need_search=False, ext_sources=None):
     """با جست‌وجو اجرا می‌کند. اگر ۴۲۹ یا خطای جست‌وجو آمد، همان مدل را بدون جست‌وجو امتحان می‌کند
     (سهمیهٔ جست‌وجوی گوگل جدا و کوچک است و بین همهٔ مدل‌های یک کلید مشترک). اگر بدون جست‌وجو جواب داد،
     جست‌وجو برای همان کلید ۲ ساعت کنار می‌رود تا درخواست‌های بعدی بی‌جهت خطا نخورند."""
+    if ext_sources is not None:   # منابع را Groq آورده؛ Gemini فقط می‌نویسد (بدون جست‌وجوی گوگل)
+        return _stream(client, name, prompt, box, use_search=False, ext_sources=ext_sources)
     skey = f"{kid}:search"
     if "gemma" in name or _blocked().get(skey, 0) > time.time():
         if need_search:
@@ -281,7 +293,7 @@ def _retryable(exc):
                                       "api_key_invalid", "api key not valid", "permission_denied")))
 
 
-def ask_ai(prompt, box=None, need_search=False):
+def ask_ai(prompt, box=None, need_search=False, ext_sources=None):
     """جدیدترین مدل رایگان را با کلیدها به‌نوبت امتحان می‌کند؛ بعد سراغ مدل قدیمی‌تر می‌رود."""
     ss = st.session_state
     keys = _get_keys()
@@ -295,7 +307,7 @@ def ask_ai(prompt, box=None, need_search=False):
         st.error(f"سقف {fa(DAILY_REQUEST_LIMIT)} درخواست در روز پر شده است (برای حفظ سهمیهٔ رایگان). "
                  "اگر لازم است، DAILY_REQUEST_LIMIT را در core/ai.py بالا ببرید.")
         return None
-    if need_search and all(_search_blocked(k[-4:]) for k in keys):
+    if need_search and ext_sources is None and all(_search_blocked(k[-4:]) for k in keys):
         st.warning("جستجوی وب (سهمیهٔ جستجوی گوگل) فعلاً در دسترس نیست. پیشنهاد خبر تازه بدون جستجو ساخته نمی‌شود، "
                    "چون مدل ممکن است خبر ساختگی بدهد. بعداً دوباره امتحان کنید یا خبر را دستی اضافه کنید.")
         return None
@@ -328,7 +340,7 @@ def ask_ai(prompt, box=None, need_search=False):
             tries += 1
             status.update(label=f"در حال جست‌وجو و تحقیق با «{short}» (کلید {fa(idx + 1)})...", state="running")
             try:
-                text = _run(genai.Client(api_key=key), name, prompt, box, kid, need_search)
+                text = _run(genai.Client(api_key=key), name, prompt, box, kid, need_search, ext_sources)
             except SearchUnavailable:
                 search_fail = True
                 continue
@@ -374,6 +386,67 @@ def ask_ai(prompt, box=None, need_search=False):
     return None
 
 
+# ---------------------------------------------------------------------------
+# مسیر ترکیبی: Groq جست‌وجو می‌کند (متن + لینک منابع) → Gemini بدون جست‌وجو به فارسی می‌نویسد
+# ---------------------------------------------------------------------------
+GROQ_NEWS_PROMPT = (
+    "Research this technology news item using web search (search in both English and Persian).\n"
+    "News item: {title} - {desc}\n\n"
+    "Report as plain text, thoroughly (no length limit), with these parts: key facts (numbers, dates, names, "
+    "companies); technical details; background and context; limitations, controversies and criticism; and any "
+    "conspiracy theories or unverified rumors circulating about it (clearly mark them as unverified and say who "
+    "spreads them). Name the source of every claim and give the publication date where known. "
+    "Do not invent anything that is not in the sources."
+)
+FROM_SOURCES_RULES = (
+    "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. مواد زیر را یک موتور جست‌وجو از وب جمع کرده است. "
+    "فقط بر اساس همین مواد، به فارسی روان، کامل و با جزئیات بنویس (محدودیتی برای طول نیست). "
+    "هر ادعای مهم را با نام منبعش همراه کن. چیزی که در مواد نیست از خودت اضافه نکن و اگر اطلاعات ناقص یا "
+    "ضدونقیض بود صریحاً بگو. هرگز لینک نساز؛ فهرست لینک‌ها بعد از متن خودکار اضافه می‌شود.\n\n"
+)
+
+
+def _materials(text, srcs, max_text=14000, max_snippets=6000):
+    """متن یافته‌ها + خلاصهٔ منابع، برای دادن به Gemini (با سقف طول)."""
+    parts = ["[یافته‌های جست‌وجو]\n" + text[:max_text]]
+    lines, used = [], 0
+    for i, (url, meta) in enumerate(srcs.items(), 1):
+        line = f"{i}. {meta['title']} — {url}\n   {meta['content'][:500]}"
+        if used + len(line) > max_snippets:
+            break
+        lines.append(line)
+        used += len(line)
+    if lines:
+        parts.append("[منابع]\n" + "\n".join(lines))
+    return "\n\n".join(parts)
+
+
+def _groq_note(exc):
+    st.info(f"Groq در دسترس نبود ({str(exc)[:120]}). با روش جایگزین (Gemini) ادامه می‌دهیم.")
+
+
+def research_news(title, desc, box=None):
+    """تحقیق یک خبر: Groq جست‌وجو می‌کند، Gemini به فارسی می‌نویسد و لینک‌های Groq زیر آن می‌آید.
+    اگر Groq نبود یا خطا داد، همان مسیر قبلی (Gemini با جست‌وجوی خودش)."""
+    if groq_client.available():
+        ph = st.empty()
+        ph.caption("🔎 در حال جست‌وجوی منابع...")
+        try:
+            gtext, srcs = groq_client.search(GROQ_NEWS_PROMPT.format(title=title, desc=desc))
+        except GroqError as exc:
+            ph.empty()
+            _groq_note(exc)
+        else:
+            ph.empty()
+            body = NEWS_PROMPT[len(RESEARCH_RULES):].format(title=title, desc=desc)
+            prompt = FROM_SOURCES_RULES + body + "\n\n" + _materials(gtext, srcs)
+            out = ask_ai(prompt, box, ext_sources=[(u, m["title"]) for u, m in srcs.items()])
+            if out and st.session_state.get("active_model"):
+                st.session_state["active_model"] += " + منابع Groq"
+            return out
+    return ask_ai(NEWS_PROMPT.format(title=title, desc=desc), box)
+
+
 SUGGEST_PROMPT = (
     "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب، فقط خبرهای تکنولوژی را پیدا کن که "
     "بین {start} و {end} (هر دو روز شامل) منتشر شده‌اند و دربارهٔ یک پیشرفت یا به‌روزرسانی جدید هستند "
@@ -385,14 +458,44 @@ SUGGEST_PROMPT = (
 )
 
 
+GROQ_SUGGEST_PROMPT = (
+    "Use web search (English and Persian) to find up to {n} of the most important technology news items "
+    "(new products, AI models, research, discoveries, events) that were PUBLISHED between {start} and {end} "
+    "inclusive. Exclude older news, general analysis, tutorials and ads. For each item give: headline, a "
+    "one-sentence summary, the exact publication date (YYYY-MM-DD) and the source name. Only include items whose "
+    "publication date you can confirm from the source. Do not invent anything.\n{avoid}"
+)
+SUGGEST_FROM_SOURCES = (
+    "از میان مواد زیر که موتور جست‌وجو از وب جمع کرده، حداکثر {n} خبر مهم‌ترِ متفاوت را انتخاب کن که تاریخ "
+    "انتشارشان بین {start} و {end} (هر دو شامل) است. چیزی از خودت اضافه نکن و خبری که تاریخ انتشارش در مواد "
+    "نیست نیاور. هر خبر را دقیقاً در یک خط و به این قالب بنویس، بدون هیچ متن اضافه:\n"
+    "عنوان فارسی کوتاه | توضیح یک‌جمله‌ای فارسی | تاریخ انتشار (YYYY-MM-DD) | نام منبع\n{avoid}\n"
+)
+
+
 def suggest_news(end_date, days=3, n=5, existing=()):
     """خبرهای منتشرشده در بازهٔ [end_date - days, end_date] را پیشنهاد می‌دهد.
+    اول Groq جست‌وجو می‌کند و Gemini خلاصه را به فارسی درمی‌آورد؛ اگر Groq نبود، Gemini با جست‌وجوی خودش.
     خروجی: (فهرست خبرها، متن بخش منابع). خبرِ بدون تاریخ معتبر یا خارج از بازه حذف می‌شود."""
     start = end_date - dt.timedelta(days=days)
     avoid = ("این عنوان‌ها قبلاً هستند؛ تکرارشان نکن: " + "؛ ".join(list(existing)[:15]) + "\n") if existing else ""
-    prompt = SUGGEST_PROMPT.format(start=start.isoformat(), end=end_date.isoformat(), n=n, avoid=avoid)
     box = st.empty()
-    text = ask_ai(prompt, box, need_search=True)
+    text, used_groq = None, False
+    if groq_client.available():
+        try:
+            gtext, srcs = groq_client.search(GROQ_SUGGEST_PROMPT.format(
+                n=n, start=start.isoformat(), end=end_date.isoformat(), avoid=avoid))
+            if not srcs:
+                raise GroqError("Groq لینک منبعی برنگرداند")
+            used_groq = True
+            prompt = SUGGEST_FROM_SOURCES.format(n=n, start=start.isoformat(), end=end_date.isoformat(),
+                                                 avoid=avoid) + _materials(gtext, srcs)
+            text = ask_ai(prompt, box, ext_sources=[(u, m["title"]) for u, m in srcs.items()])
+        except GroqError as exc:
+            _groq_note(exc)
+    if not used_groq:
+        prompt = SUGGEST_PROMPT.format(start=start.isoformat(), end=end_date.isoformat(), n=n, avoid=avoid)
+        text = ask_ai(prompt, box, need_search=True)
     box.empty()
     if not text:
         return None, ""
@@ -455,6 +558,9 @@ def diagnose():
     _blocked().clear()
     _reasons().clear()
     keys = _get_keys()
+    ok, info = groq_client.ping()
+    st.markdown("**Groq (جست‌وجوی منابع)**")
+    st.code(("✅ کار می‌کند" if ok else "❌ ") + (f" — {info}" if info else ""), language=None)
     if not keys:
         st.error("ابتدا کلید را وارد کنید.")
         return
