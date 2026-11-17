@@ -202,6 +202,8 @@ def _block(kid, name, exc):
         now = dt.datetime.now(tz)
         nxt = (now + dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         secs = (nxt - now).total_seconds()
+    elif _code(low, "503") or "unavailable" in low or "high demand" in low:
+        secs = 30  # شلوغی موقت سرور گوگل؛ زود دوباره امتحان می‌شود
     else:
         m = re.search(r"retry in ([\d.]+)s", low)
         secs = min(float(m.group(1)) if m else 60, 300) + 3  # سقف دقیقه‌ای
@@ -340,7 +342,17 @@ def ask_ai(prompt, box=None, need_search=False, ext_sources=None):
             tries += 1
             status.update(label=f"در حال جست‌وجو و تحقیق با «{short}» (کلید {fa(idx + 1)})...", state="running")
             try:
-                text = _run(genai.Client(api_key=key), name, prompt, box, kid, need_search, ext_sources)
+                try:
+                    text = _run(genai.Client(api_key=key), name, prompt, box, kid, need_search, ext_sources)
+                except SearchUnavailable:
+                    raise
+                except Exception as exc503:  # noqa: BLE001
+                    low503 = str(exc503).lower()
+                    if not (_code(low503, "503") or "unavailable" in low503 or "high demand" in low503):
+                        raise
+                    status.update(label="سرور گوگل شلوغ است؛ چند ثانیه بعد دوباره امتحان می‌شود...", state="running")
+                    time.sleep(5)   # شلوغی ۵۰۳ معمولاً موقتی است؛ یک بار با همان مدل دوباره
+                    text = _run(genai.Client(api_key=key), name, prompt, box, kid, need_search, ext_sources)
             except SearchUnavailable:
                 search_fail = True
                 continue
@@ -421,6 +433,27 @@ def _materials(text, srcs, max_text=14000, max_snippets=6000):
     return "\n\n".join(parts)
 
 
+def _groq_cached(prompt):
+    """نتیجهٔ جست‌وجوی Groq برای یک پرامپت در همین نشست نگه داشته می‌شود؛ اگر Gemini خطا داد و دوباره
+    امتحان کردید، Groq دوباره صدا زده نمی‌شود (صرفه‌جویی در سهمیه)."""
+    cache = st.session_state.setdefault("_groq_cache", {})
+    if prompt in cache:
+        return cache[prompt]
+    res = groq_client.search(prompt)
+    if len(cache) >= 6:
+        cache.pop(next(iter(cache)))
+    cache[prompt] = res
+    return res
+
+
+def _show_raw(gtext, srcs):
+    with st.expander("📄 یافته‌های خام جست‌وجو (انگلیسی) — چون Gemini پاسخ نداد", expanded=True):
+        st.markdown(gtext)
+        if srcs:
+            st.markdown("**منابع:**\n" + "\n".join(f"{i}. [{m['title']}]({u})" for i, (u, m) in enumerate(srcs.items(), 1)))
+        st.caption("دوباره روی «بررسی» بزنید؛ جست‌وجوی Groq تکرار نمی‌شود و فقط نوشتن فارسی با Gemini دوباره امتحان می‌شود.")
+
+
 def _groq_note(exc):
     st.info(f"Groq در دسترس نبود ({str(exc)[:120]}). با روش جایگزین (Gemini) ادامه می‌دهیم.")
 
@@ -432,7 +465,7 @@ def research_news(title, desc, box=None):
         ph = st.empty()
         ph.caption("🔎 در حال جست‌وجوی منابع...")
         try:
-            gtext, srcs = groq_client.search(GROQ_NEWS_PROMPT.format(title=title, desc=desc))
+            gtext, srcs = _groq_cached(GROQ_NEWS_PROMPT.format(title=title, desc=desc))
         except GroqError as exc:
             ph.empty()
             _groq_note(exc)
@@ -443,6 +476,8 @@ def research_news(title, desc, box=None):
             out = ask_ai(prompt, box, ext_sources=[(u, m["title"]) for u, m in srcs.items()])
             if out and st.session_state.get("active_model"):
                 st.session_state["active_model"] += " + منابع Groq"
+            if not out:
+                _show_raw(gtext, srcs)
             return out
     return ask_ai(NEWS_PROMPT.format(title=title, desc=desc), box)
 
@@ -483,7 +518,7 @@ def suggest_news(end_date, days=3, n=5, existing=()):
     text, used_groq = None, False
     if groq_client.available():
         try:
-            gtext, srcs = groq_client.search(GROQ_SUGGEST_PROMPT.format(
+            gtext, srcs = _groq_cached(GROQ_SUGGEST_PROMPT.format(
                 n=n, start=start.isoformat(), end=end_date.isoformat(), avoid=avoid))
             if not srcs:
                 raise GroqError("Groq لینک منبعی برنگرداند")
