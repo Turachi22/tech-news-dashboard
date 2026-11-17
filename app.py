@@ -22,11 +22,11 @@ from core.style import apply_css  # noqa: E402
 from views import deep, home, news, settings, stats  # noqa: E402
 
 ROUTES = [  # (کلید در آدرس، برچسب منو، تابع نمایش)
-    ("home", "🏠 خانه", home.render),
-    ("news", "📰 اخبار", news.render),
-    ("deep", "💡 دیپ‌دایو", deep.render),
-    ("stats", "📊 آمار", stats.render),
-    ("settings", "⚙️ تنظیمات", settings.render),
+    ("home", ":material/home: خانه", home.render),
+    ("news", ":material/newspaper: اخبار", news.render),
+    ("deep", ":material/lightbulb: دیپ‌دایو", deep.render),
+    ("stats", ":material/bar_chart: آمار", stats.render),
+    ("settings", ":material/settings: تنظیمات", settings.render),
 ]
 
 apply_css()
