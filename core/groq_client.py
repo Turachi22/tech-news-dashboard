@@ -14,7 +14,7 @@ import streamlit as st
 
 URL = "https://api.groq.com/openai/v1/chat/completions"
 MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]   # هر دو ابزار browser_search دارند؛ اگر اولی خطا داد، دومی
-MAX_OUT_TOKENS = 2500   # سقف خروجی؛ پلن رایگان سقف توکن در دقیقه دارد
+MAX_OUT_TOKENS = 3500   # سقف خروجی؛ پلن رایگان سقف توکن در دقیقه دارد
 TIMEOUT = 120
 SYSTEM = ("You are a careful web research assistant. Use web search. Report only what you actually found in "
           "sources; never invent facts, dates or links. Always name the source of each claim.")
