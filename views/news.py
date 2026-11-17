@@ -39,7 +39,7 @@ def _suggest_box():
 def render():
     header("اخبار داغ هفته", "بررسی، تأیید یا ردِ خبرهای پیشنهادی")
     ensure_daily_news()
-    render_workflow(show_script=True, nav=True)
+    render_workflow(show_script=True, nav=True, tabs=True)
 
     sections = approved_sections()
     if sections:
