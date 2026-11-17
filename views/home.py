@@ -11,12 +11,11 @@ from core.helpers import H
 
 HERO_CSS = """
 <style>
-.hero { text-align: center; margin: 6px 0 28px; }
-.hero-title { font-size: 3.4rem; font-weight: 800; color: #fff; line-height: 1.25; direction: rtl;
-              text-shadow: 0 4px 24px rgba(99,102,241,.45); }
-.hero-sub { margin-top: 10px; font-size: .8rem; color: #a5b4fc; opacity: .9; }
-.hero-sub i { font-style: normal; font-size: .85rem; margin-left: 4px; }
-@media (max-width: 640px) { .hero-title { font-size: 2.1rem; } }
+.hero { text-align: center; margin: 4px 0 26px; }
+.hero-title { font-size: 3rem; font-weight: 800; line-height: 1.3; direction: rtl;
+              background: linear-gradient(90deg, #5eead4, #38bdf8); -webkit-background-clip: text;
+              background-clip: text; color: transparent; }
+@media (max-width: 640px) { .hero-title { font-size: 2rem; } }
 </style>
 """
 

@@ -13,7 +13,7 @@ from core.helpers import header
 
 def _suggest_box():
     ss = st.session_state
-    with st.expander("🗞 پیشنهاد خبرهای تازه (فقط ۳ روز تا تاریخ انتخاب‌شده)"):
+    with st.expander(":material/newspaper: پیشنهاد خبرهای تازه (فقط ۳ روز تا تاریخ انتخاب‌شده)"):
         day = st.date_input("تا تاریخ", value=dt.date.today(), key="sugg_date")
         st.caption(f"فقط خبرهای منتشرشده از {day - dt.timedelta(days=3)} تا {day} پیشنهاد می‌شود. "
                    "هر بار یک درخواست مصرف می‌شود.")
@@ -26,7 +26,7 @@ def _suggest_box():
         for i, it in enumerate(ss.get("suggestions", [])):
             with st.container(border=True):
                 st.markdown(f"**{it['title']}**  \n{it['desc']}  \n_{it['source']} · {it['date']}_")
-                if st.button("➕ افزودن به صف", key=f"sugg_add_{i}"):
+                if st.button(":material/add: افزودن به صف", key=f"sugg_add_{i}"):
                     ss.news_list.append({"title": it["title"], "desc": f"{it['desc']} ({it['source']}، {it['date']})",
                                          "icon": "📰", "status": "Pending", "ai": "", "research": [],
                                          "added": dt.date.today().isoformat(), "week": current_week()})
@@ -44,7 +44,7 @@ def render():
     sections = approved_sections()
     if sections:
         if HAS_DOCX:
-            st.download_button("⬇️ دانلود همهٔ اسکریپت‌ها (Word)", data=make_docx(sections),
+            st.download_button(":material/download: دانلود همهٔ اسکریپت‌ها (Word)", data=make_docx(sections),
                                file_name="scripts.docx", mime=DOCX_MIME, key="dl_word_all")
         else:
             st.info("برای خروجی Word، «python-docx» را به requirements.txt اضافه کنید.")

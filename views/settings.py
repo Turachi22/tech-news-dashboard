@@ -30,7 +30,7 @@ def render():
         st.divider()
         backup_section()
         st.divider()
-        if st.button("🧪 تست کلیدها و مدل‌ها"):
+        if st.button(":material/science: تست کلیدها و مدل‌ها"):
             diagnose()
         if st.button("بازنشانی همهٔ داده‌ها"):
             for k in ("news_list", "deep_topics", "events", "daily"):
