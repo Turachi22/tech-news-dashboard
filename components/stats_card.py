@@ -16,7 +16,7 @@ def render_stats():
         for v in ss.views)
     labels = "".join(f"<span>{d}</span>" for d in WEEKDAYS_FA[: len(ss.views)])
 
-    colors = {"Approved": "#22c55e", "Reviewing": "#6366f1", "Pending": "#a855f7", "Rejected": "#ef4444"}
+    colors = {"Approved": "#34d399", "Reviewing": "#38bdf8", "Pending": "#64748b", "Rejected": "#fb7185"}
     parts, cum = [], 0
     for status, color in colors.items():
         if counts[status]:

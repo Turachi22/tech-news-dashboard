@@ -18,8 +18,8 @@ def render_ideas():
                 H(f'<div class="news-title">{esc(topic["title"])} {chip(topic["status"])}</div>')
                 with st.container(key=f"keep_idea_{idx}"):
                     b_cal, b_scn = st.columns(2)
-                    add_cal = b_cal.button("📅 تقویم", key=f"cal_{idx}")
-                    add_scn = b_scn.button("🎬 سناریو", key=f"scn_{idx}")
+                    add_cal = b_cal.button(":material/calendar_month: تقویم", key=f"cal_{idx}")
+                    add_scn = b_scn.button(":material/movie: سناریو", key=f"scn_{idx}")
                 if add_cal:
                     ss.events = [e for e in ss.events if e["title"] != topic["title"]]
                     ss.events.append({"date": pub.isoformat(), "title": topic["title"]})

@@ -43,6 +43,6 @@ def render_calendar():
         month_prefix = f"{y:04d}-{m:02d}"
         month_events = [e for e in ss.events if e["date"].startswith(month_prefix)]
         for i, ev in enumerate(sorted(month_events, key=lambda e: e["date"])):
-            if st.button(f"🗑 {fa(ev['date'])} — {ev['title']}", key=f"del_{i}"):
+            if st.button(f":material/delete: {fa(ev['date'])} — {ev['title']}", key=f"del_{i}"):
                 ss.events.remove(ev)
                 st.rerun()

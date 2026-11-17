@@ -6,7 +6,7 @@ import streamlit as st
 
 from core.ai import NEWS_STRUCTURE, ask_ai, build_followup_prompt, research_conspiracies, research_news
 from core.export import DOCX_MIME, HAS_DOCX, make_docx
-from core.helpers import H, chip, esc, fa
+from core.helpers import H, chip, esc, fa, svg
 from core.state import (ARCHIVE_DAYS, KEEP_PREVIOUS_WEEKS, WEEKDAY_FA, current_week, days_left,
                         now_str, save_data)
 
@@ -37,20 +37,20 @@ def approved_sections():
 
 
 def _script_box(idx, item):
-    with st.expander("📝 اسکریپت"):
+    with st.expander(":material/edit_note: اسکریپت"):
         saved = item.get("script_saved")
         st.text_area("متن نهایی اسکریپت", value=item.get("script", ""), height=260,
                      key=f"script_{idx}", on_change=_save_script, args=(idx,))
         st.caption(f"آخرین ذخیره: {fa(saved)}" if saved else "هنوز ذخیره نشده. با خارج‌شدن از کادر، خودکار ذخیره می‌شود.")
         with st.container(key=f"keep_script_{idx}"):
             c_save, c_word, c_txt = st.columns(3)
-            c_save.button("💾 ذخیره", key=f"save_script_{idx}", type="primary",
+            c_save.button(":material/save: ذخیره", key=f"save_script_{idx}", type="primary",
                           on_click=_save_script, args=(idx,))
             if HAS_DOCX:
-                c_word.download_button("⬇️ Word", data=make_docx([script_section(idx, item)]),
+                c_word.download_button(":material/download: Word", data=make_docx([script_section(idx, item)]),
                                        file_name=f"script_{idx + 1}.docx", mime=DOCX_MIME,
                                        key=f"dl_word_{idx}")
-            c_txt.download_button("⬇️ متن", data=st.session_state.get(f"script_{idx}", item.get("script", "")),
+            c_txt.download_button(":material/download: متن", data=st.session_state.get(f"script_{idx}", item.get("script", "")),
                                   file_name=f"script_{idx + 1}.txt", key=f"dl_txt_{idx}")
 
 
@@ -67,7 +67,7 @@ def _research_block(idx, item):
     versions = item.get("research") or []
     if not versions:
         return
-    st.caption(f"🗂 آرشیف: {fa(len(versions))} نسخه · تا {fa(days_left(item))} روز دیگر نگه‌داری می‌شود "
+    st.caption(f":material/inventory_2: آرشیف: {fa(len(versions))} نسخه · تا {fa(days_left(item))} روز دیگر نگه‌داری می‌شود "
                f"(پس از {fa(ARCHIVE_DAYS)} روز بدون فعالیت، خودکار حذف می‌شود)")
     for i, v in enumerate(versions):
         title = "بررسی اولیه" if not v.get("q") else v["q"][:60] + ("…" if len(v["q"]) > 60 else "")
@@ -77,7 +77,7 @@ def _research_block(idx, item):
             if info:
                 st.caption(info)
 
-    if st.button("🕵️ بررسی عمیق‌تر نظریه‌های توطئه", key=f"cons_{idx}",
+    if st.button(":material/travel_explore: بررسی عمیق‌تر نظریه‌های توطئه", key=f"cons_{idx}",
                  help="یک جست‌وجوی جداگانه فقط برای نظریه‌ها و شایعات؛ نتیجه به‌عنوان نسخهٔ جدید ذخیره می‌شود"):
         t0 = time.time()
         text = research_conspiracies(item["title"], item["desc"])
@@ -85,7 +85,7 @@ def _research_block(idx, item):
             _add_version(item, "نظریه‌های توطئه (بررسی عمیق)", text, round(time.time() - t0, 1))
             st.rerun()
 
-    with st.expander("💬 سؤال یا درخواست اطلاعات بیشتر"):
+    with st.expander(":material/forum: سؤال یا درخواست اطلاعات بیشتر"):
         with st.form(f"chat_{idx}", clear_on_submit=True):
             q = st.text_area("سؤال شما از Gemini", height=90,
                              placeholder="مثلاً: آمار دقیق‌تر بده / منبع این ادعا چیست؟ / از دید منتقدان بنویس")
@@ -128,14 +128,14 @@ def _save_manual(idx):
 
 def _manual_box(idx, item):
     """حالت دستی بدون API: پرامپت آماده را در چت Gemini بزنید و جواب را اینجا بچسبانید (بدون هیچ سهمیهٔ API)."""
-    with st.expander("✋ بدون API: پرامپت آماده + چسباندن جواب"):
+    with st.expander(":material/content_paste: بدون API: پرامپت آماده + چسباندن جواب"):
         st.caption("۱) متن زیر را کپی کنید (آیکن کپی بالا-گوشهٔ کادر) · ۲) در چت Gemini بچسبانید "
                    "· ۳) جواب را کپی کرده و پایین بچسبانید و ذخیره کنید.")
         st.code(manual_prompt(item), language=None)
         st.text_area("جوابِ چت Gemini را اینجا بچسبانید", height=200, key=f"manual_{idx}")
         if st.session_state.get(f"manual_err_{idx}"):
             st.warning("متن خیلی کوتاه است؛ جواب کامل را بچسبانید.")
-        st.button("💾 ذخیره به‌عنوان نسخهٔ جدید", key=f"manual_save_{idx}", type="primary",
+        st.button(":material/save: ذخیره به‌عنوان نسخهٔ جدید", key=f"manual_save_{idx}", type="primary",
                   on_click=_save_manual, args=(idx,))
 
 
@@ -146,18 +146,18 @@ def news_item(idx, item, show_script=False):
         verb = "تأیید" if status == "Approved" else "رد"
         decided = item.get("decided", "")
         when = fa(decided) if decided else "ثبت نشده (یک‌بار دیگر دکمهٔ «" + verb + "» را بزنید)"
-        date_line = f'<div class="muted" style="margin-top:4px">📅 تاریخ {verb}: {when}</div>'
-    with st.container(border=True):
+        date_line = f'<div class="muted" style="margin-top:4px">تاریخ {verb}: {when}</div>'
+    with st.container(key=f"newscard_{idx}_{status}"):
         H('<div class="news-head">'
-          f'<div class="avatar">{item["icon"]}</div>'
+          f'<div class="avatar">{svg("news", 22)}</div>'
           f'<div><div class="news-title">{esc(item["title"])} {chip(status)}</div>'
           f'<div class="news-desc">{esc(item["desc"])}</div>{date_line}</div></div>')
 
         with st.container(key=f"keep_news_{idx}"):
             b_ok, b_no, b_ai = st.columns(3)
-            ok = b_ok.button("➕ تأیید", key=f"app_{idx}", type="primary")
-            no = b_no.button("✖ رد", key=f"rej_{idx}")
-            ai = b_ai.button("🔍 بررسی" if not item.get("research") else "📂 تحقیق ثبت‌شده", key=f"rev_{idx}")
+            ok = b_ok.button(":material/check: تأیید", key=f"app_{idx}", type="primary")
+            no = b_no.button(":material/close: رد", key=f"rej_{idx}")
+            ai = b_ai.button(":material/search: بررسی" if not item.get("research") else ":material/folder_open: تحقیق ثبت‌شده", key=f"rev_{idx}")
         if ok:
             item["status"], item["decided"] = "Approved", _now()
             st.rerun()
@@ -173,7 +173,7 @@ def news_item(idx, item, show_script=False):
             st.info("برای این خبر قبلاً تحقیق انجام شده و نسخه‌های آن پایین‌تر هست. "
                     "بررسی مجدد یک درخواست جدید از سهمیه مصرف می‌کند.")
             c_yes, c_no = st.columns(2)
-            go = c_yes.button("🔁 بله، نسخهٔ جدید بساز", key=f"redo_yes_{idx}", type="primary")
+            go = c_yes.button(":material/replay: بله، نسخهٔ جدید بساز", key=f"redo_yes_{idx}", type="primary")
             if c_no.button("انصراف", key=f"redo_no_{idx}"):
                 st.session_state[redo_key] = False
                 st.rerun()
@@ -200,9 +200,9 @@ def news_item(idx, item, show_script=False):
 def _day_label(iso):
     try:
         d = dt.date.fromisoformat(iso)
-        return f"📅 {WEEKDAY_FA[d.weekday()]} {fa(iso)}" + (" (امروز)" if d == dt.date.today() else "")
+        return f"{svg('calendar', 16)} {WEEKDAY_FA[d.weekday()]} {fa(iso)}" + (" · امروز" if d == dt.date.today() else "")
     except ValueError:
-        return "📅 —"
+        return "—"
 
 
 def _indices(week):
@@ -217,7 +217,7 @@ def _render_items(idxs, show_script):
     for i in idxs:
         day = news[i].get("added", "")
         if day != last_day:
-            H(f'<div class="muted" style="margin:10px 0 4px">{_day_label(day)}</div>')
+            H(f'<div class="day-label">{_day_label(day)}</div>')
             last_day = day
         news_item(i, news[i], show_script)
 
@@ -227,63 +227,66 @@ def _week_range(w):
     return f"{fa(w)} تا {fa((d + dt.timedelta(days=6)).isoformat())}"
 
 
-def _week_nav():
-    """کلید «هفتهٔ قبل» (سمت چپ) و «هفتهٔ بعد» (سمت راست). برمی‌گرداند: شنبهٔ هفتهٔ انتخاب‌شده (ISO)."""
+def _week_nav(week_label):
+    """کلید «هفتهٔ قبل» (سمت چپ) و «هفتهٔ بعد» (سمت راست) با برچسب وسط. برمی‌گرداند: (شنبهٔ هفتهٔ انتخاب‌شده، offset)."""
     ss = st.session_state
     off = max(-KEEP_PREVIOUS_WEEKS, min(0, ss.get("week_offset", 0)))
     ss["week_offset"] = off
     week = (dt.date.fromisoformat(current_week()) + dt.timedelta(weeks=off)).isoformat()
     with st.container(key="keep_weeknav"):
-        c_next, c_mid, c_prev = st.columns([1, 1.3, 1])   # صفحه راست‌به‌چپ است: ستون اول سمت راست
-        if c_next.button("هفتهٔ بعد ▶", key="wk_next", disabled=(off >= 0), use_container_width=True):
+        c_next, c_mid, c_prev = st.columns([1, 2.4, 1])   # صفحه راست‌به‌چپ است: ستون اول سمت راست
+        if c_next.button(":material/chevron_right: بعد", key="wk_next", disabled=(off >= 0), use_container_width=True):
             ss["week_offset"] = off + 1
             st.rerun()
-        c_mid.markdown(
-            f'<div style="text-align:center;font-size:.8rem;opacity:.85;padding-top:.45rem">'
-            f'{"هفتهٔ جاری" if off == 0 else f"{fa(-off)} هفته قبل"}</div>', unsafe_allow_html=True)
-        if c_prev.button("◀ هفتهٔ قبل", key="wk_prev", disabled=(off <= -KEEP_PREVIOUS_WEEKS),
+        label = "هفتهٔ جاری" if off == 0 else f"{fa(-off)} هفته قبل"
+        c_mid.markdown(f'<div class="wk-mid"><b>{label}</b><span>{week_label(week)}</span></div>',
+                       unsafe_allow_html=True)
+        if c_prev.button("قبل :material/chevron_left:", key="wk_prev", disabled=(off <= -KEEP_PREVIOUS_WEEKS),
                          use_container_width=True):
             ss["week_offset"] = off - 1
             st.rerun()
     return week, off
 
 
+TAB_DEFS = [("done", "check_circle", "تأیید شده", lambda s: s == "Approved"),
+            ("rej", "cancel", "رد شده", lambda s: s == "Rejected"),
+            ("wait", "hourglass_empty", "در انتظار", lambda s: s not in ("Approved", "Rejected"))]
+
+
 def render_workflow(show_script=False, nav=False, tabs=False):
     """جریان کاری. با nav=True بالای کارت کلید «هفتهٔ قبل / هفتهٔ بعد» هست و هفتهٔ جاری پیش‌فرض است.
-    با tabs=True خبرها در سه زبانه می‌آیند: تأیید شده، رد شده، در انتظار (خبرِ «در حال بررسی» هم در انتظار است؛
-    اگر بعد از بررسی رد شود، به «رد شده» می‌رود)."""
+    با tabs=True خبرها در سه دستهٔ «تأیید شده / رد شده / در انتظار» با شمارنده می‌آیند (خبرِ «در حال بررسی» هم
+    در انتظار است؛ اگر بعد از بررسی رد شود، به «رد شده» می‌رود). انتخاب دسته با کلید ثابت حفظ می‌شود."""
     news = st.session_state.news_list
     with st.container(border=True):
-        week, off = _week_nav() if nav else (current_week(), 0)
+        week, off = _week_nav(_week_range) if nav else (current_week(), 0)
         idxs = _indices(week)
         week_news = [news[i] for i in idxs]
         total = len(week_news)
         count = lambda s: sum(1 for n in week_news if n["status"] == s)  # noqa: E731
         done = count("Approved")
         pct = round(done / total * 100) if total else 0
-        title = "جریان کاری تأیید اخبار (هفتهٔ جاری)" if off == 0 else "جریان کاری تأیید اخبار (آرشیف هفته)"
-        H(f'<div class="card-title">{title}</div>')
-        if nav:
-            H(f'<div class="muted" style="margin-bottom:6px">📅 {_week_range(week)}</div>')
-        H(f'<div class="progress"><div style="width:{pct}%"></div></div>'
-          f'<div class="muted">{fa(done)} از {fa(total)} خبر تأیید شده · {fa(count("Rejected"))} رد شده</div>'
-          '<div class="stepper">'
-          f'<div class="step queue">در صف <b>{fa(count("Pending"))}</b></div><span class="arrow">←</span>'
-          f'<div class="step review">بررسی <b>{fa(count("Reviewing"))}</b></div><span class="arrow">←</span>'
-          f'<div class="step done">تأیید شده <b>{fa(done)}</b></div>'
-          '</div>')
+        if not nav:
+            H('<div class="card-title">اخبار هفتهٔ جاری</div>')
+        waiting = total - done - count("Rejected")
+        H('<div class="sum-row"><div>'
+          f'<div class="sum-t">{fa(done)} از {fa(total)} خبر تأیید شده</div>'
+          f'<div class="muted">{fa(count("Rejected"))} رد شده · {fa(waiting)} در انتظار</div></div>'
+          f'<div class="progress"><div style="width:{pct}%"></div></div></div>')
         if not tabs:
             if not idxs:
                 st.caption("خبری برای این هفته نیست.")
             _render_items(idxs, show_script)
             return
-        # برچسب زبانه‌ها ثابت است (بدون عدد) تا با تأیید/ردِ یک خبر، زبانهٔ انتخاب‌شده عوض نشود
-        groups = [("✅ تأیید شده", lambda st_: st_ == "Approved"),
-                  ("✖ رد شده", lambda st_: st_ == "Rejected"),
-                  ("⏳ در انتظار", lambda st_: st_ not in ("Approved", "Rejected"))]
-        for tab, (label, match) in zip(st.tabs([g[0] for g in groups]), groups):
-            with tab:
-                sub = [i for i in idxs if match(news[i]["status"])]
-                st.caption(f"{fa(len(sub))} خبر")
-                if sub:
-                    _render_items(sub, show_script)
+        by_key = {k: [i for i in idxs if m(news[i]["status"])] for k, _ic, _lb, m in TAB_DEFS}
+        labels = {k: f":material/{ic}: {lb}  ·  {fa(len(by_key[k]))}" for k, ic, lb, _m in TAB_DEFS}
+        keys = [d[0] for d in TAB_DEFS]
+        if hasattr(st, "segmented_control"):
+            pick = st.segmented_control("دسته", keys, default="done", key="news_tab",
+                                        format_func=lambda k: labels[k], label_visibility="collapsed") or "done"
+        else:  # نسخه‌های قدیمی‌تر Streamlit
+            pick = st.radio("دسته", keys, key="news_tab", horizontal=True,
+                            format_func=lambda k: labels[k], label_visibility="collapsed")
+        if not by_key[pick]:
+            st.caption("خبری در این دسته نیست.")
+        _render_items(by_key[pick], show_script)

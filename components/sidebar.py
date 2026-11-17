@@ -9,7 +9,7 @@ BRAND_CSS = """
 <style>
 .brand { text-align: center; margin: 2px 0 10px; }
 .brand-logo {
-    width: 100%; max-width: 160px; height: auto; display: block; margin: 0 auto;
+    width: 100%; max-width: 150px; height: auto; display: block; margin: 0 auto;
     -webkit-mask-image: linear-gradient(to right, transparent 0, #000 11%, #000 89%, transparent 100%),
                         linear-gradient(to bottom, transparent 0, #000 11%, #000 89%, transparent 100%);
     -webkit-mask-composite: source-in;
@@ -33,24 +33,15 @@ def _quota_box():
     """نشانگر کوچک وضعیت سهمیه: مصرف امروز + مدل‌های منتظر سهمیه و زمان آزاد شدن."""
     used, limit = usage_today(), DAILY_REQUEST_LIMIT
     pct = min(used / limit, 1.0) if limit else 0
-    color = "#34d399" if pct < .6 else ("#fbbf24" if pct < .9 else "#f87171")
+    cls = "ok" if pct < .6 else ("warn" if pct < .9 else "bad")
     rows = quota_status()
     waiting = "".join(
         f'<div class="q-row"><b>{esc(m.replace("models/", "") or "کلید …" + k)}</b>'
         f'<span>{esc(why)} · {_wait_text(t)}</span></div>' for k, m, t, why in rows[:6])
-    H("""<style>
-.qbox { border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 10px 12px; margin: 4px 0 10px;
-        background: rgba(255,255,255,.04); font-size: .8rem; direction: rtl; }
-.q-bar { height: 6px; border-radius: 6px; background: rgba(255,255,255,.12); margin: 6px 0 2px; overflow: hidden; }
-.q-fill { height: 100%; border-radius: 6px; }
-.q-row { display: flex; flex-direction: column; margin-top: 6px; padding-top: 6px;
-         border-top: 1px dashed rgba(255,255,255,.12); }
-.q-row span { opacity: .75; font-size: .72rem; }
-</style>""" + f'<div class="qbox">📊 درخواست امروز: <b>{fa(used)}</b> از {fa(limit)}'
-      f'<div class="q-bar"><div class="q-fill" style="width:{int(pct * 100)}%;background:{color}"></div></div>'
-      + (f'<div style="margin-top:6px">⏳ منتظر سهمیه: {fa(len(rows))}</div>{waiting}' if rows
-         else '<div style="margin-top:6px;opacity:.75">همهٔ مدل‌ها آمادهٔ کارند ✅</div>')
-      + '</div>')
+    state = (f'<div class="q-state"><i class="dot warn"></i>منتظر سهمیه: {fa(len(rows))} مدل</div>{waiting}' if rows
+             else '<div class="q-state"><i class="dot ok"></i>همهٔ مدل‌ها آماده‌اند</div>')
+    H(f'<div class="qbox"><div class="q-head"><span>سهمیهٔ امروز</span><span><b>{fa(used)}</b> از {fa(limit)}</span></div>'
+      f'<div class="q-bar"><div class="q-fill {cls}" style="width:{int(pct * 100)}%"></div></div>{state}</div>')
 
 
 def render_sidebar(routes):
@@ -67,9 +58,8 @@ def render_sidebar(routes):
             if st.button(label, key=f"nav_{key}", type="primary" if ss.page == key else "secondary"):
                 ss.page = key
                 st.rerun()
-        st.markdown("---")
         _quota_box()
-        with st.expander("🔑 Gemini"):
+        with st.expander(":material/key: کلید Gemini"):
             st.text_input("کلید اول", type="password", key="api_key")
             st.text_input("کلید دوم (اختیاری)", type="password", key="api_key2")
             if ss.get("active_model"):
@@ -77,7 +67,7 @@ def render_sidebar(routes):
             st.caption(f"درخواست‌های امروز: {fa(usage_today())} از {fa(DAILY_REQUEST_LIMIT)}")
             if blocked_count():
                 st.caption(f"{fa(blocked_count())} مدل موقتاً به سقف رسیده‌اند")
-            if st.button("🔄 بازنشانی فهرست مدل‌ها"):
+            if st.button(":material/refresh: بازنشانی فهرست مدل‌ها"):
                 reset_model_cache()
                 st.rerun()
 
