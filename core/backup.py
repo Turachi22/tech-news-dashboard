@@ -24,10 +24,10 @@ def _valid(data):
 def backup_section():
     """بخش پشتیبان در صفحهٔ تنظیمات."""
     ss = st.session_state
-    st.markdown("##### 💾 پشتیبان‌گیری")
+    st.markdown("##### :material/save: پشتیبان‌گیری")
     n = len(ss.get("news_list", []))
     st.caption(f"{n} خبر در حافظه است. گاهی یک نسخهٔ پشتیبان دانلود کنید تا اگر Gist یا توکن مشکل پیدا کرد، چیزی از دست نرود.")
-    st.download_button("⬇️ دانلود پشتیبان (JSON)", data=make_backup(),
+    st.download_button(":material/download: دانلود پشتیبان (JSON)", data=make_backup(),
                        file_name=f"sade-backup-{dt.date.today().isoformat()}.json",
                        mime="application/json", key="dl_backup")
     up = st.file_uploader("بازگردانی از فایل پشتیبان", type=["json"], key="restore_file")
@@ -44,7 +44,7 @@ def backup_section():
     st.info(f"این فایل {len(data['news_list'])} خبر دارد"
             + (f" (تاریخ پشتیبان: {data['_backup_at']})" if data.get("_backup_at") else "")
             + ". بازگردانی داده‌های فعلی را جایگزین می‌کند.")
-    if st.button("♻️ بازگردانی و جایگزینی داده‌های فعلی", type="primary", key="do_restore"):
+    if st.button(":material/restore: بازگردانی و جایگزینی داده‌های فعلی", type="primary", key="do_restore"):
         ss.news_list = data["news_list"]
         ss.deep_topics = data.get("deep_topics") or ss.get("deep_topics", [])
         ss.events = data.get("events") or []

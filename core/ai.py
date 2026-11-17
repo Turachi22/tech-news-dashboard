@@ -332,7 +332,7 @@ def _run(client, name, prompt, box, kid="", need_search=False, ext_sources=None)
             text = _stream(client, name, prompt, box, use_search=False)  # اگر این هم خطا داد، بالا می‌رود
             _blocked()[skey] = time.time() + 7200
             st.warning("سهمیهٔ جست‌وجوی وب (برای لینک منبع) روی این کلید تمام یا در دسترس نبود؛ "
-                       "پاسخ بدون لینک تولید شد. برای لینک واقعی از «✋ بدون API» استفاده کنید "
+                       "پاسخ بدون لینک تولید شد. برای لینک واقعی از «بدون API» استفاده کنید "
                        "یا بعداً دوباره امتحان کنید.")
             return text
         raise
@@ -481,7 +481,7 @@ GROQ_CONSPIRACY_PROMPT = (
     "Never invent a speaker, a quote or a URL."
 )
 CONSPIRACY_FORMAT = (
-    "قالب پاسخ (مارک‌داون؛ بدون مقدمه و بدون توضیح دربارهٔ گزارش). عنوان: ## 🕵️ نظریه‌ها و شایعات توطئه‌آمیز\n"
+    "قالب پاسخ (مارک‌داون؛ بدون مقدمه و بدون توضیح دربارهٔ گزارش). عنوان: ## نظریه‌ها و شایعات توطئه‌آمیز\n"
     "برای هر ادعا (حداکثر ۶ ادعا) دقیقاً این قالب:\n"
     "### ادعا: (یک جمله)\n"
     "- **چه کسی یا کدام منبع:** نام کامل، سمت یا رسانه، و بستر (توییتر/X، مصاحبه، مقاله، پادکست، انجمن…)\n"
@@ -531,7 +531,7 @@ def _groq_cached(prompt):
 
 
 def _show_raw(gtext, srcs):
-    with st.expander("📄 یافته‌های خام جست‌وجو (انگلیسی) — چون Gemini پاسخ نداد", expanded=True):
+    with st.expander(":material/description: یافته‌های خام جست‌وجو (انگلیسی) — چون Gemini پاسخ نداد", expanded=True):
         st.markdown(gtext)
         if srcs:
             st.markdown("**منابع:**\n" + "\n".join(
@@ -555,7 +555,7 @@ def _hybrid(groq_prompt, gemini_body, fallback_prompt, box=None, gemini_first=Fa
         st.session_state["_last_ai_call"] = 0   # درخواست بعدی به‌خاطر فاصلهٔ حداقل رد نشود
     if groq_ok:
         ph = st.empty()
-        ph.caption("🔎 در حال جست‌وجوی منابع...")
+        ph.caption(":material/search: در حال جست‌وجوی منابع...")
         try:
             gtext, srcs = _groq_cached(groq_prompt)
         except GroqError as exc:
@@ -715,7 +715,7 @@ def diagnose():
     keys = _get_keys()
     ok, info = groq_client.ping()
     st.markdown("**Groq (جست‌وجوی منابع)**")
-    st.code(("✅ کار می‌کند" if ok else "❌ ") + (f" — {info}" if info else ""), language=None)
+    st.code(("کار می‌کند ✓" if ok else "خطا ✗ ") + (f" — {info}" if info else ""), language=None)
     if not keys:
         st.error("ابتدا کلید را وارد کنید.")
         return

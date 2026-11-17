@@ -28,7 +28,7 @@ _JS = """
       add('link', {rel: 'apple-touch-icon', href: base + 'apple-touch-icon.png'});
       add('link', {rel: 'icon', type: 'image/png', sizes: '512x512', href: base + 'icon-512.png'});
       var m = head.querySelector('meta[name="theme-color"]');
-      if (m) m.setAttribute('content', '#14122e'); else add('meta', {name: 'theme-color', content: '#14122e'});
+      if (m) m.setAttribute('content', '#060a14'); else add('meta', {name: 'theme-color', content: '#060a14'});
     } catch (e) {}
   });
 })();

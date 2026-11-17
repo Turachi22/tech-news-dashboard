@@ -64,7 +64,7 @@ def ensure_daily_news():
     # ۲) فقط یک تلاش خودکار در روز (ماندگار؛ با بازکردن دوبارهٔ اپ تکرار نمی‌شود)
     if ss.daily.get("tried") == iso:
         st.caption("پیشنهاد امروز هنوز دریافت نشده (سهمیه یا خطا). برای تلاش دوباره دکمه را بزنید.")
-        if st.button("🔄 دریافت دوبارهٔ پیشنهاد امروز", key="auto_retry"):
+        if st.button(":material/refresh: دریافت دوبارهٔ پیشنهاد امروز", key="auto_retry"):
             ss.daily["tried"] = ""
             st.rerun()
         return

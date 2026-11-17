@@ -75,7 +75,7 @@ def require_login():
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         st.markdown("<div style='height:12vh'></div>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align:center'>🔒 داشبورد شخصی ساده</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align:center'>داشبورد شخصی ساده</h3>", unsafe_allow_html=True)
         with st.form("login"):
             typed = st.text_input("رمز عبور", type="password")
             remember = st.checkbox("این دستگاه را به یاد داشته باش", value=True)
@@ -103,7 +103,7 @@ def logout_button():
     if not _password():
         st.caption("رمز ورود فعال نیست (APP_PASSWORD در Secrets تنظیم نشده).")
         return
-    if st.button("🔒 خروج و فراموش کردن این دستگاه", key="logout"):
+    if st.button(":material/lock: خروج و فراموش کردن این دستگاه", key="logout"):
         st.session_state["auth_ok"] = False
         st.session_state["_clear_cookie"] = True
         st.rerun()
