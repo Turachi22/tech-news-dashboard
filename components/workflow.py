@@ -4,7 +4,7 @@ import time
 
 import streamlit as st
 
-from core.ai import NEWS_PROMPT, ask_ai, build_followup_prompt
+from core.ai import NEWS_PROMPT, RESEARCH_RULES, ask_ai, build_followup_prompt, research_news
 from core.export import DOCX_MIME, HAS_DOCX, make_docx
 from core.helpers import H, chip, esc, fa
 from core.state import (ARCHIVE_DAYS, KEEP_PREVIOUS_WEEKS, WEEKDAY_FA, current_week, days_left,
@@ -90,6 +90,48 @@ def _research_block(idx, item):
                 st.rerun()
 
 
+MANUAL_RULES = (
+    "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب تحقیق کن و پاسخ را به زبان فارسی، "
+    "کامل و دقیق و با جزئیات بنویس. اعداد، تاریخ‌ها، نام افراد و شرکت‌ها را بیاور و هر ادعای مهم را با نام منبع "
+    "همراه کن. در پایان بخشی به نام «منابع» با لینک واقعی صفحه‌هایی که واقعاً خوانده‌ای بیاور؛ هرگز لینک نساز. "
+    "اگر دربارهٔ درستی چیزی مطمئن نیستی، صریحاً بگو.\n\n"
+)
+
+
+def manual_prompt(item):
+    """همان ساختار پرامپت اپ، ولی برای چسباندن در چت Gemini (لینک منابع را خود چت می‌نویسد)."""
+    body = NEWS_PROMPT[len(RESEARCH_RULES):].format(title=item["title"], desc=item["desc"])
+    return MANUAL_RULES + body
+
+
+def _save_manual(idx):
+    ss = st.session_state
+    text = (ss.get(f"manual_{idx}") or "").strip()
+    if len(text) < 80:
+        ss[f"manual_err_{idx}"] = True
+        return
+    item = ss.news_list[idx]
+    _add_version(item, "نسخهٔ دستی (چت Gemini)", text, None)
+    item["research"][-1]["model"] = "Gemini چت (دستی)"
+    if item["status"] == "Pending":
+        item["status"] = "Reviewing"
+    ss[f"manual_err_{idx}"] = False
+    ss[f"manual_{idx}"] = ""
+
+
+def _manual_box(idx, item):
+    """حالت دستی بدون API: پرامپت آماده را در چت Gemini بزنید و جواب را اینجا بچسبانید (بدون هیچ سهمیهٔ API)."""
+    with st.expander("✋ بدون API: پرامپت آماده + چسباندن جواب"):
+        st.caption("۱) متن زیر را کپی کنید (آیکن کپی بالا-گوشهٔ کادر) · ۲) در چت Gemini بچسبانید "
+                   "· ۳) جواب را کپی کرده و پایین بچسبانید و ذخیره کنید.")
+        st.code(manual_prompt(item), language=None)
+        st.text_area("جوابِ چت Gemini را اینجا بچسبانید", height=200, key=f"manual_{idx}")
+        if st.session_state.get(f"manual_err_{idx}"):
+            st.warning("متن خیلی کوتاه است؛ جواب کامل را بچسبانید.")
+        st.button("💾 ذخیره به‌عنوان نسخهٔ جدید", key=f"manual_save_{idx}", type="primary",
+                  on_click=_save_manual, args=(idx,))
+
+
 def news_item(idx, item, show_script=False):
     status = item["status"]
     date_line = ""
@@ -135,12 +177,13 @@ def news_item(idx, item, show_script=False):
                 ai = True
         if ai:
             t0 = time.time()
-            text = ask_ai(NEWS_PROMPT.format(title=item["title"], desc=item["desc"]))
+            text = research_news(item["title"], item["desc"])
             if text:
                 _add_version(item, "بررسی مجدد" if has_research else "", text, round(time.time() - t0, 1))
                 if item["status"] == "Pending":
                     item["status"] = "Reviewing"
                 st.rerun()
+        _manual_box(idx, item)
         _research_block(idx, item)
 
         if show_script and item["status"] == "Approved":
