@@ -40,13 +40,32 @@ RESEARCH_RULES = (
     "هر ادعای مهم را با نام منبع همراه کن. هرگز خودت لینک نساز؛ لینک منابع واقعی بعد از متن "
     "به‌صورت خودکار اضافه می‌شود. اگر دربارهٔ درستی چیزی مطمئن نیستی، صریحاً بگو.\n\n"
 )
-NEWS_PROMPT = RESEARCH_RULES + (
-    "ساختار پاسخ: ۱) توضیح ساده برای مخاطب عمومی (سطح کلاس ششم)؛ ۲) جزئیات فنی و آمار؛ "
-    "۳) پیشینه و زمینهٔ خبر؛ ۴) محدودیت‌ها، مناقشه‌ها و میزان اطمینان به درستی خبر؛ "
-    "۵) چند زاویهٔ پیشنهادی برای ویدیو؛ ۶) در بخش آخر: نظریه‌ها و شایعات توطئه‌آمیز مرتبط با این خبر، "
-    "با برچسب «ادعای اثبات‌نشده»، گوینده یا ترویج‌کنندهٔ اصلی هر ادعا و میزان مستند بودن آن؛ این ادعاها را "
-    "هرگز به‌عنوان حقیقت بیان نکن و اگر موردی نیست همین را صریحاً بنویس.\nخبر: {title} — {desc}"
+NEWS_RULES = (
+    "تو ویراستار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب تحقیق کن و فقط مهم‌ترین و ضروری‌ترین "
+    "اطلاعات را به فارسی روان و بدون غلط املایی بنویس. اعداد، تاریخ‌ها و نام‌ها را بیاور و هر ادعای مهم را با "
+    "نام منبعش همراه کن. هرگز خودت لینک نساز؛ لینک منابع بعد از متن خودکار اضافه می‌شود. "
+    "اگر دربارهٔ درستی چیزی مطمئن نیستی، صریحاً بگو.\n\n"
 )
+NEWS_STRUCTURE = (
+    "قالب پاسخ (دقیقاً با همین عنوان‌ها و به‌صورت مارک‌داون؛ فقط مهم‌ترین و ضروری‌ترین اطلاعات؛ بدون مقدمه، "
+    "بدون جملهٔ تکراری و بدون هیچ توضیحی دربارهٔ خودِ گزارش):\n"
+    "## ۱) خلاصهٔ ساده\nحداکثر ۴ جمله برای مخاطب عمومی (سطح کلاس ششم).\n"
+    "## ۲) حقایق و آمار کلیدی\nحداکثر ۶ نقطه (• ...)؛ هر کدام یک خط شامل عدد/تاریخ/نام و ارجاع به منبع.\n"
+    "## ۳) پیشینه\nحداکثر ۳ نقطه.\n"
+    "## ۴) محدودیت‌ها و میزان اطمینان\nحداکثر ۴ نقطه؛ آخرین نقطه: اطمینان کلی (زیاد/متوسط/کم) با یک دلیل.\n"
+    "## ۵) زاویه‌های پیشنهادی برای ویدیو\n۳ زاویه، هر کدام یک خط.\n"
+    "## ۶) نظریه‌ها و شایعات توطئه‌آمیز\n"
+    "این بخش برای من مهم است و باید دقیق‌تر و مفصل‌تر از بقیه باشد. برای هر ادعا (حداکثر ۴ ادعا) دقیقاً این قالب:\n"
+    "### ادعا: (یک جمله)\n"
+    "- **چه کسی یا کدام منبع:** نام کامل، سمت یا رسانه، و بستر (توییتر/X، مصاحبه، مقاله، پادکست، انجمن…)\n"
+    "- **دقیقاً چه گفته:** نقل‌قول کوتاه یا خلاصهٔ نزدیک به متن، همراه تاریخ اگر هست\n"
+    "- **مستندات له و علیه:** چه چیزی آن را تقویت می‌کند و چه چیزی رد می‌کند\n"
+    "- **نظر منابع معتبر یا راستی‌آزمایان:** (یا «موردی یافت نشد»)\n"
+    "- **برچسب:** ادعای اثبات‌نشده\n"
+    "اگر موردی در منابع نبود فقط بنویس «در منابع بررسی‌شده موردی یافت نشد»؛ هیچ ادعا، گوینده یا نقل‌قولی نساز.\n"
+    "خبر: {title} — {desc}"
+)
+NEWS_PROMPT = NEWS_RULES + NEWS_STRUCTURE
 DEEP_PROMPT = RESEARCH_RULES + (
     "برای یک مینی‌مستند تکنولوژی دربارهٔ موضوع زیر اطلاعات پس‌زمینه، تاریخچه، حقایق کلیدی، "
     "نکته‌های کمتر شناخته‌شده و چند زاویهٔ روایی جذاب ارائه بده.\nموضوع: {title}"
@@ -210,6 +229,24 @@ def _block(kid, name, exc):
     _blocked()[f"{kid}:{name}"] = time.time() + secs
 
 
+def _link_citations(text, ext_sources):
+    """ارجاع‌های [3] یا [2][5] یا [۳] را به لینک واقعی همان منبع تبدیل می‌کند؛ شمارهٔ منابع استفاده‌شده را هم برمی‌گرداند."""
+    used = []
+
+    def sub(m):
+        out = []
+        for tok in re.findall(r"\d+", m.group(1)):
+            n = int(tok)
+            if 1 <= n <= len(ext_sources):
+                if n not in used:
+                    used.append(n)
+                out.append(f"[{n}]({ext_sources[n - 1][0]})")
+        return " ".join(out) if out else m.group(0)
+
+    text = re.sub(r"\[(\d+(?:\s*[,،]\s*\d+)*)\]", sub, text)
+    return text, sorted(used)
+
+
 def _stream(client, model_name, prompt, box, use_search=True, ext_sources=None):
     _count_request()
     kwargs = dict(
@@ -234,8 +271,12 @@ def _stream(client, model_name, prompt, box, use_search=True, ext_sources=None):
         box.markdown(text + " ▌")
     if ext_sources is not None:
         if ext_sources:
-            text += "\n\n---\n**منابع (لینک‌های واقعی از جست‌وجوی Groq):**\n" + "\n".join(
-                f"{i}. [{title}]({uri})" for i, (uri, title) in enumerate(ext_sources, 1))
+            text, used = _link_citations(text, ext_sources)
+            show = used or list(range(1, len(ext_sources) + 1))
+            head = ("**منابع (فقط مواردی که در متن به آن‌ها ارجاع شده؛ لینک‌های واقعی از جست‌وجوی Groq):**"
+                    if used else "**منابع (لینک‌های واقعی از جست‌وجوی Groq):**")
+            text += "\n\n---\n" + head + "\n" + "\n".join(
+                f"{n}. [{ext_sources[n - 1][1]}]({ext_sources[n - 1][0]})" for n in show)
         else:
             text += "\n\n---\n⚠️ جست‌وجو لینکی برنگرداند؛ اطلاعات را پیش از انتشار راستی‌آزمایی کنید."
     elif sources:
@@ -404,32 +445,60 @@ def ask_ai(prompt, box=None, need_search=False, ext_sources=None):
 GROQ_NEWS_PROMPT = (
     "Research this technology news item using web search (search in both English and Persian).\n"
     "News item: {title} - {desc}\n\n"
-    "Report as concise plain-text research notes (about 600-900 words), with these parts: key facts (numbers, dates, names, "
-    "companies); technical details; background and context; limitations, controversies and criticism; and any "
-    "conspiracy theories or unverified rumors circulating about it (clearly mark them as unverified and say who "
-    "spreads them). Name the source of every claim and give the publication date where known. "
-    "Do not invent anything that is not in the sources."
+    "Write concise research notes in two parts.\n"
+    "PART A - FACTS (about 350 words): key facts with numbers, dates and names; technical details; background; "
+    "limitations and criticism. Name the source and the publication date of every claim.\n"
+    "PART B - CONSPIRACY THEORIES AND RUMORS (about 450 words; this part is important): find the specific "
+    "conspiracy theories, rumors and unverified speculation about this item. For EACH one (max 4) give: "
+    "(1) the claim in one sentence; (2) WHO said it: full name, role or outlet, and where (X/Twitter, interview, "
+    "article, podcast, forum); (3) WHAT exactly they said: a short direct quote or a close paraphrase, and the date; "
+    "(4) the evidence offered for it and the evidence against it; (5) what credible outlets or fact-checkers say "
+    "about it; (6) the URL of the page where you found it. If you find none, say exactly that. "
+    "Never invent a speaker, a quote or a URL."
+)
+GROQ_CONSPIRACY_PROMPT = (
+    "Use web search (English and Persian) to dig deeper into the conspiracy theories, rumors and unverified "
+    "speculation around this technology news item.\nNews item: {title} - {desc}\n\n"
+    "For EACH distinct claim (max 6) give: (1) the claim in one sentence; (2) WHO said it: full name, role or "
+    "outlet, and where (X/Twitter, interview, article, podcast, forum); (3) WHAT exactly they said: a short direct "
+    "quote or close paraphrase, and the date; (4) the evidence offered for it and the evidence against it; "
+    "(5) what credible outlets or fact-checkers say; (6) the URL of the page where you found it. "
+    "Be specific; no vague statements like 'some people say'. If you find none, say exactly that. "
+    "Never invent a speaker, a quote or a URL."
+)
+CONSPIRACY_FORMAT = (
+    "قالب پاسخ (مارک‌داون؛ بدون مقدمه و بدون توضیح دربارهٔ گزارش). عنوان: ## 🕵️ نظریه‌ها و شایعات توطئه‌آمیز\n"
+    "برای هر ادعا (حداکثر ۶ ادعا) دقیقاً این قالب:\n"
+    "### ادعا: (یک جمله)\n"
+    "- **چه کسی یا کدام منبع:** نام کامل، سمت یا رسانه، و بستر (توییتر/X، مصاحبه، مقاله، پادکست، انجمن…)\n"
+    "- **دقیقاً چه گفته:** نقل‌قول کوتاه یا خلاصهٔ نزدیک به متن، همراه تاریخ اگر هست\n"
+    "- **مستندات له و علیه:** چه چیزی آن را تقویت می‌کند و چه چیزی رد می‌کند\n"
+    "- **نظر منابع معتبر یا راستی‌آزمایان:** (یا «موردی یافت نشد»)\n"
+    "- **برچسب:** ادعای اثبات‌نشده\n"
+    "در پایان یک جمع‌بندی دو خطی. اگر موردی در منابع نبود فقط بنویس «در منابع بررسی‌شده موردی یافت نشد»؛ "
+    "هیچ ادعا، گوینده یا نقل‌قولی نساز.\nخبر: {title} — {desc}"
 )
 FROM_SOURCES_RULES = (
-    "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. مواد زیر را یک موتور جست‌وجو از وب جمع کرده است. "
-    "فقط بر اساس همین مواد، به فارسی روان، کامل و با جزئیات بنویس (محدودیتی برای طول نیست). "
-    "هر ادعای مهم را با نام منبعش همراه کن. چیزی که در مواد نیست از خودت اضافه نکن و اگر اطلاعات ناقص یا "
-    "ضدونقیض بود صریحاً بگو. هرگز لینک نساز؛ فهرست لینک‌ها بعد از متن خودکار اضافه می‌شود.\n\n"
+    "تو ویراستار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. مواد زیر را یک موتور جست‌وجو از وب جمع کرده است "
+    "(هر منبع یک شماره دارد). فقط بر اساس همین مواد بنویس. هر عدد، تاریخ، نقل‌قول و ادعا باید با ارجاع شماره‌ای "
+    "مثل [3] یا [2][5] همراه باشد؛ چیزی که در مواد نیست نیاور، حتی اگر خودت می‌دانی. "
+    "تاریخ امروز {today} است؛ تاریخی بعد از امروز را فقط اگر صریحاً در مواد آمده باشد بیاور و کنارش بنویس «طبق منبع». "
+    "فارسی روان و بدون غلط املایی؛ هیچ عبارت داخل کروشه جز ارجاع‌های شماره‌ای ننویس؛ لینک نساز.\n\n"
 )
 
 
 def _materials(text, srcs, max_text=14000, max_snippets=6000):
-    """متن یافته‌ها + خلاصهٔ منابع، برای دادن به Gemini (با سقف طول)."""
+    """متن یافته‌ها + منابع شماره‌دار، برای دادن به Gemini (با سقف طول)."""
     parts = ["[یافته‌های جست‌وجو]\n" + text[:max_text]]
     lines, used = [], 0
     for i, (url, meta) in enumerate(srcs.items(), 1):
-        line = f"{i}. {meta['title']} — {url}\n   {meta['content'][:500]}"
+        line = f"[{i}] {meta['title']} — {url}\n    {meta['content'][:500]}"
         if used + len(line) > max_snippets:
             break
         lines.append(line)
         used += len(line)
     if lines:
-        parts.append("[منابع]\n" + "\n".join(lines))
+        parts.append("[منابع شماره‌دار]\n" + "\n".join(lines))
     return "\n\n".join(parts)
 
 
@@ -450,36 +519,51 @@ def _show_raw(gtext, srcs):
     with st.expander("📄 یافته‌های خام جست‌وجو (انگلیسی) — چون Gemini پاسخ نداد", expanded=True):
         st.markdown(gtext)
         if srcs:
-            st.markdown("**منابع:**\n" + "\n".join(f"{i}. [{m['title']}]({u})" for i, (u, m) in enumerate(srcs.items(), 1)))
-        st.caption("دوباره روی «بررسی» بزنید؛ جست‌وجوی Groq تکرار نمی‌شود و فقط نوشتن فارسی با Gemini دوباره امتحان می‌شود.")
+            st.markdown("**منابع:**\n" + "\n".join(
+                f"{i}. [{m['title']}]({u})" for i, (u, m) in enumerate(srcs.items(), 1)))
+        st.caption("دوباره بزنید؛ جست‌وجوی Groq تکرار نمی‌شود و فقط نوشتن فارسی با Gemini دوباره امتحان می‌شود.")
 
 
 def _groq_note(exc):
     st.info(f"Groq در دسترس نبود ({str(exc)[:120]}). با روش جایگزین (Gemini) ادامه می‌دهیم.")
 
 
-def research_news(title, desc, box=None):
-    """تحقیق یک خبر: Groq جست‌وجو می‌کند، Gemini به فارسی می‌نویسد و لینک‌های Groq زیر آن می‌آید.
-    اگر Groq نبود یا خطا داد، همان مسیر قبلی (Gemini با جست‌وجوی خودش)."""
+def _hybrid(groq_prompt, gemini_body, fallback_prompt, box=None):
+    """Groq جست‌وجو می‌کند → Gemini (بدون جست‌وجو) از روی مواد می‌نویسد، ارجاع‌های [n] به لینک تبدیل می‌شوند.
+    اگر Groq نبود یا خطا داد، fallback_prompt با Gemini (و جست‌وجوی خودش)."""
     if groq_client.available():
         ph = st.empty()
         ph.caption("🔎 در حال جست‌وجوی منابع...")
         try:
-            gtext, srcs = _groq_cached(GROQ_NEWS_PROMPT.format(title=title, desc=desc))
+            gtext, srcs = _groq_cached(groq_prompt)
         except GroqError as exc:
             ph.empty()
             _groq_note(exc)
         else:
             ph.empty()
-            body = NEWS_PROMPT[len(RESEARCH_RULES):].format(title=title, desc=desc)
-            prompt = FROM_SOURCES_RULES + body + "\n\n" + _materials(gtext, srcs)
+            prompt = (FROM_SOURCES_RULES.format(today=dt.date.today().isoformat()) + gemini_body
+                      + "\n\n" + _materials(gtext, srcs))
             out = ask_ai(prompt, box, ext_sources=[(u, m["title"]) for u, m in srcs.items()])
             if out and st.session_state.get("active_model"):
                 st.session_state["active_model"] += " + منابع Groq"
             if not out:
                 _show_raw(gtext, srcs)
             return out
-    return ask_ai(NEWS_PROMPT.format(title=title, desc=desc), box)
+    return ask_ai(fallback_prompt, box)
+
+
+def research_news(title, desc, box=None):
+    """تحقیق یک خبر (قالب ۶ بخشی، کوتاه و مارک‌داون، با بخش مفصل نظریه‌های توطئه)."""
+    return _hybrid(GROQ_NEWS_PROMPT.format(title=title, desc=desc),
+                   NEWS_STRUCTURE.format(title=title, desc=desc),
+                   NEWS_PROMPT.format(title=title, desc=desc), box)
+
+
+def research_conspiracies(title, desc, box=None):
+    """بررسی عمیق‌تر فقط نظریه‌ها و شایعات توطئه‌آمیز یک خبر (با یک جست‌وجوی جداگانهٔ Groq)."""
+    return _hybrid(GROQ_CONSPIRACY_PROMPT.format(title=title, desc=desc),
+                   CONSPIRACY_FORMAT.format(title=title, desc=desc),
+                   NEWS_RULES + CONSPIRACY_FORMAT.format(title=title, desc=desc), box)
 
 
 SUGGEST_PROMPT = (
