@@ -136,6 +136,36 @@ def search(prompt):
     raise last
 
 
+PICK_SYSTEM = ("You are a precise technology news editor. Follow the requested output format exactly. "
+               "Use only the information given; never invent facts, dates or links.")
+
+
+def chat(prompt, max_tokens=2500):
+    """گفت‌وگوی ساده بدون جست‌وجو (برای انتخاب خبر از فهرست آماده). خروجی: متن. در خطا GroqError."""
+    key = groq_key()
+    if not key:
+        raise GroqError("GROQ_API_KEY تنظیم نشده است")
+    if time.time() < _state()["until"]:
+        raise GroqError(f"Groq موقتاً کنار گذاشته شده ({_state()['why']})")
+    last = None
+    for model in MODELS:
+        body = {"model": model, "temperature": 0.2, "max_completion_tokens": max_tokens,
+                "messages": [{"role": "system", "content": PICK_SYSTEM}, {"role": "user", "content": prompt}]}
+        try:
+            data = _post(body, key)
+            text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "").strip()
+            if not text:
+                raise GroqError("پاسخ خالی از Groq")
+            return text
+        except GroqError as e:
+            last = e
+            if e.code in (0, 400, 404, 413, 429, 500, 502, 503):
+                continue
+            break
+    _block(last)
+    raise last
+
+
 def ping():
     """تست برای صفحهٔ تنظیمات: (True/False، توضیح). یک جست‌وجوی واقعی و کوچک می‌زند و تعداد لینک‌ها را می‌گوید."""
     if not groq_key():

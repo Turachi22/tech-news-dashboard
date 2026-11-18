@@ -33,7 +33,7 @@ THINKING_BUDGET = 0
 #   "gemini" = اول جست‌وجوی خود Gemini (گوگل)؛ اگر سهمیهٔ جست‌وجویش تمام بود، خودکار Groq.
 #   "groq"   = اول Groq (جست‌وجو) و Gemini فقط برای نوشتن؛ اگر Groq نبود، Gemini با جست‌وجوی خودش.
 # (دکمهٔ «بررسی عمیق نظریه‌های توطئه» همیشه اول با Groq کار می‌کند.)
-SEARCH_PRIORITY = "gemini"
+SEARCH_PRIORITY = "groq"
 
 # --- محافظ مصرف (برای جلوگیری از هدر رفتن سهمیهٔ رایگان) ---
 MAX_ATTEMPTS_PER_CLICK = 8      # حداکثر تعداد تلاش (ترکیب مدل × کلید) برای یک کلیک
@@ -608,6 +608,8 @@ SUGGEST_CRITERIA_EN = (
     "- BIG IMPACT: affects the lives, jobs, health, safety or money of many people.\n"
     "- CONTROVERSIAL: a real public debate, so credible sources exist on both the supporting and the opposing side.\n"
     "RULES:\n"
+    "- Stay inside the 8 domains above. Skip anything that is not science or technology news (politics, banking "
+    "or finance outages, social issues, lifestyle), even if it is very popular.\n"
     "- One story = one item. If several articles cover the same event, merge them into ONE item; never list the "
     "same event twice under different headlines.\n"
     "- At most ONE item per company or person.\n"
@@ -635,10 +637,12 @@ SUGGEST_PROMPT = (
 GROQ_SUGGEST_PROMPT = (
     "Use web search (English and Persian sources) to find up to {n} technology news items PUBLISHED between "
     "{start} and {end} inclusive, ranked best first.\n" + SUGGEST_CRITERIA_EN +
-    "For each item give: headline; a 1-2 sentence summary (what happened and why it matters); the exact "
-    "publication date (YYYY-MM-DD) taken from the source; the source name; the domain; a short English story key "
-    "(3-4 words); and, if controversial, one sentence on what is disputed and by whom. Include only items whose "
-    "publication date you can confirm. Do not invent anything.\n{avoid}"
+    "OUTPUT: one item per line, best first, in English, exactly in this format with the separator | and no other "
+    "text:\n"
+    "headline | 1-2 sentence summary (what happened and why it matters) | publication date YYYY-MM-DD taken from the "
+    "source | source name | domain | story key (3-4 lowercase words, identical for the same story) | what is "
+    "disputed and by whom (one short sentence; write - if nothing is disputed)\n"
+    "Include only items whose publication date you can confirm. Do not invent anything.\n{avoid}"
 )
 
 SUGGEST_FROM_SOURCES = (
@@ -665,10 +669,26 @@ SUGGEST_FROM_CANDIDATES = (
     "{avoid}\nCANDIDATES:\n"
 )
 
+SUGGEST_PICK_EN = (
+    "Below is a numbered list of CANDIDATE technology news items automatically collected from reputable sources. "
+    "Each line shows: [id], (domain tag), headline, sources, publication date, optional Hacker News score, the number "
+    "of independent sources that covered it, and a short snippet. All were published between {start} and {end}.\n"
+    "Pick up to {n} items that best fit the criteria below. Choose ONLY from this list and refer to items by id. "
+    "Many independent sources and a high Hacker News score indicate VIRAL; a high comment count relative to points "
+    "indicates CONTROVERSIAL. Use ONLY the headline and snippet; never add facts.\n"
+    + SUGGEST_CRITERIA_EN +
+    "OUTPUT: in English. One item per line, best first, exactly in this format with the separator | and no other "
+    "text:\n"
+    "id (number only) | clear short English headline | English summary of 1-2 sentences (what happened and why it "
+    "matters) | story key (3-4 lowercase words, identical for the same story) | what is disputed and by whom (one "
+    "short sentence; write - if nothing is disputed)\n"
+    "{avoid}\nCANDIDATES:\n"
+)
+
 MUSK_RE = re.compile(r"spacex|starship|starlink|tesla|\bxai\b|neuralink|boring company|elon|musk|optimus", re.I)
 
 
-def _parse_picks(text, cands, existing=()):
+def _parse_picks(text, cands, existing=(), english=False):
     """خروجی Gemini در حالت «انتخاب از فهرست»: شمارهٔ کاندید ← لینک، منبع و تاریخ واقعی از خود کاندید گرفته می‌شود
     (نه از مدل). تکراری‌ها، خبر قبلی، بیش از ۲ خبر در یک حوزه و بیش از یک خبر مرتبط با ماسک حذف می‌شود."""
     by_id = {c["id"]: c for c in cands}
@@ -683,9 +703,10 @@ def _parse_picks(text, cands, existing=()):
         if not c:
             continue
         title, summary = parts[1], parts[2]
-        domain = DOMAIN_FA_BY_KEY.get(c["domain"]) or (parts[3] if len(parts) > 3 else "")
-        key = parts[4] if len(parts) > 4 else ""
-        debate = parts[5] if len(parts) > 5 else ""
+        off = 0 if english else 1          # حالت انگلیسی (Groq): فیلد «حوزه» وجود ندارد
+        domain = DOMAIN_FA_BY_KEY.get(c["domain"]) or (parts[3] if (not english and len(parts) > 3) else "")
+        key = parts[3 + off] if len(parts) > 3 + off else ""
+        debate = parts[4 + off] if len(parts) > 4 + off else ""
         if any(_similar(title, e) for e in existing):
             continue
         if any(_similar(title, i["title"]) or (key and i["key"] and _similar(key, i["key"], 0.6)) for i in items):
@@ -727,10 +748,25 @@ def _from_feeds(start, end_date, n, avoid, existing, box):
     prompt = SUGGEST_FROM_CANDIDATES.format(n=n, start=start.isoformat(), end=end_date.isoformat(),
                                             avoid=avoid) + feeds.format_candidates(cands)
     text = ask_ai(prompt, box, ext_sources=[])   # ext_sources=[] ⇒ بدون جست‌وجوی گوگل
-    if not text:
-        return None
-    items, sources = _parse_picks(text, cands, existing)
-    return (items, sources) if items else None
+    if text:
+        items, sources = _parse_picks(text, cands, existing)
+        if items:
+            return items, sources
+    # Gemini جواب نداد (مثلاً سهمیه): Groq به انگلیسی و بدون جست‌وجو از همین فهرست انتخاب می‌کند
+    if groq_client.available():
+        try:
+            short = feeds.shortlist(cands)
+            gprompt = SUGGEST_PICK_EN.format(n=n, start=start.isoformat(), end=end_date.isoformat(),
+                                             avoid=avoid) + feeds.format_candidates(short, snippet=110)
+            gtext = groq_client.chat(gprompt)
+        except GroqError as exc:
+            _groq_note(exc)
+            return None
+        items, sources = _parse_picks(gtext, short, existing, english=True)
+        if items:
+            st.caption("Gemini در دسترس نبود؛ انتخاب با Groq (به انگلیسی) انجام شد. عنوان‌ها انگلیسی‌اند.")
+            return items, sources
+    return None
 
 
 def suggest_news(end_date, days=3, n=5, existing=()):
@@ -766,6 +802,9 @@ def suggest_news(end_date, days=3, n=5, existing=()):
             prompt = SUGGEST_FROM_SOURCES.format(n=n, start=start.isoformat(), end=end_date.isoformat(),
                                                  avoid=avoid) + _materials(gtext, srcs)
             text = ask_ai(prompt, box, ext_sources=[(u, m["title"]) for u, m in srcs.items()])
+            if not text:   # Gemini نتوانست بنویسد: خروجی انگلیسی خود Groq (همان قالب خطی) استفاده می‌شود
+                text = gtext
+                st.caption("Gemini در دسترس نبود؛ نتیجهٔ جست‌وجوی Groq (به انگلیسی) استفاده شد.")
         except GroqError as exc:
             _groq_note(exc)
     if not groq_done and not text and SEARCH_PRIORITY != "gemini":

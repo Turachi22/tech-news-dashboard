@@ -15,6 +15,7 @@ import json
 import math
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -66,7 +67,6 @@ FEEDS = {
         ("NASA", "https://www.nasa.gov/feed/"),
         ("Universe Today", "https://www.universetoday.com/feed"),
         ("Payload", "https://payloadspace.com/feed"),
-        ("ESA", "https://www.esa.int/rssfeed/Our_Activities/Space_Science"),
         ("Ars Technica Space", "https://arstechnica.com/space/feed/"),
         ("TechCrunch Space", "https://techcrunch.com/category/space/feed/"),
     ],
@@ -93,9 +93,7 @@ FEEDS = {
     "energy": [
         ("CleanTechnica", "https://cleantechnica.com/feed/"),
         ("Canary Media", "https://www.canarymedia.com/rss.rss"),
-        ("IEEE Spectrum Energy", "https://spectrum.ieee.org/feeds/topic/energy.rss"),
         ("New Atlas Energy", "https://newatlas.com/energy/index.rss"),
-        ("Tech Xplore Energy", "https://techxplore.com/rss-feed/energy-news/"),
         ("Phys.org Nanotech", "https://phys.org/rss-feed/nanotech-news/"),
     ],
     "chips": [
@@ -135,20 +133,59 @@ BUDGET = 28                   # سقف کل زمان جمع‌آوری (ثانی
 WORKERS = 14
 PER_DOMAIN = 6                # بهترین‌های هر حوزه که به Gemini داده می‌شود
 GENERAL_TOP = 10
-MAX_CANDIDATES = 44
+MAX_CANDIDATES = 64
 CACHE_SECONDS = 20 * 60
-UA = "Mozilla/5.0 (compatible; SadeDashboard/1.0; +personal news aggregator)"
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+      "Chrome/124.0 Safari/537.36")
 
 _STOP = set("the a an of to in on for and is are with as at by from its it new after how why what this that be has have "
             "will says say over into more than about their his her you your can could may not but out up".split())
+
+
+# ── تشخیص حوزه با کلیدواژه (برای خبرهای فقط‌HN: خبر خارج از ۸ حوزه حذف می‌شود) ──
+KEYWORDS = {
+    "biology": r"gene|crispr|genom|\bdna\b|\brna\b|vaccine|drug|therap|cancer|clinical|\bfda\b|biotech|protein|"
+               r"neuro|longevity|aging|medical|disease|virus|antibiotic|stem cell|organoid|lab-grown|surgery",
+    "machines": r"robot|humanoid|drone|autonomous|self-driving|robotaxi|evtol|aircraft|airplane|\bjet\b|vehicle|"
+                r"\bev\b|electric car|truck|exoskeleton|waymo|boston dynamics|optimus",
+    "ai": r"\bai\b|artificial intelligence|\bllm|\bgpt|gemini|claude|openai|anthropic|deepmind|machine learning|"
+          r"chatbot|neural|copilot|\bagents?\b",
+    "space": r"\bspace|nasa|\besa\b|rocket|satellite|\bmoon\b|lunar|\bmars\b|orbit|telescope|asteroid|astronaut|"
+             r"comet|galax|starship|spacex",
+    "defense": r"military|missile|hypersonic|weapon|pentagon|\barmy\b|\bnavy\b|air force|fighter|f-35|warfare|nato|"
+               r"stealth|bomber|submarine|radar|defense",
+    "software": r"software|windows|linux|macos|\bios\b|android|browser|open source|open-source|cyber|hack|breach|"
+                r"vulnerab|zero-day|ransomware|malware|encrypt|privacy|exploit|\bcve|security",
+    "energy": r"battery|batteries|solar|nuclear|fusion|reactor|power grid|hydrogen|superconduct|lithium|wind turbine|"
+              r"geothermal|graphene|perovskite|energy storage",
+    "chips": r"\bchips?\b|semiconductor|\bgpu|\bcpu|tsmc|nvidia|\bintel\b|\bamd\b|quantum|qubit|processor|"
+             r"transistor|lithograph|\bhbm|silicon",
+}
+_KW = {d: re.compile(p, re.I) for d, p in KEYWORDS.items()}
+
+
+def classify(text):
+    """حوزهٔ محتمل یک خبر یا None (بیشترین تطابق کلیدواژه)."""
+    best, n = None, 0
+    for d, rx in _KW.items():
+        k = len(rx.findall(text))
+        if k > n:
+            best, n = d, k
+    return best
 
 
 # ── دریافت و تجزیهٔ فید ─────────────────────────────────────────────────────────────────
 def _fetch(url, timeout=TIMEOUT, max_bytes=3_000_000):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml, application/atom+xml, "
                                                                           "application/xml, text/xml, application/json, */*"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310  (آدرس‌ها ثابت و معتبرند)
-        return r.read(max_bytes)
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310  (آدرس‌ها ثابت و معتبرند)
+                return r.read(max_bytes)
+        except urllib.error.HTTPError as exc:
+            if attempt == 2 or exc.code not in (429, 500, 502, 503):
+                raise
+            time.sleep(1.5)
 
 
 def _local(tag):
@@ -293,7 +330,8 @@ def _build(items, hn, start_dt, end_dt):
             if x["source"] and x["source"] not in sources:
                 sources.append(x["source"])
         domains = [x["domain"] for x in m if x["domain"] != "general"]
-        domain = max(set(domains), key=domains.count) if domains else "general"
+        domain = max(set(domains), key=domains.count) if domains else (
+            classify(lead["title"] + " " + lead["desc"]) or "general")
         pts = com = 0
         urls = {_norm_url(x["url"]) for x in m}
         for h in hn:
@@ -310,9 +348,12 @@ def _build(items, hn, start_dt, end_dt):
     for h in hn:   # خبرهای داغ HN که هیچ‌کدام از فیدها نداشتند
         if h["hn_id"] in used_hn or h["points"] < HN_MIN_POINTS * 2:
             continue
+        hn_domain = classify(h["title"])
+        if not hn_domain:      # خارج از ۸ حوزه (بانک، سیاست، مسائل اجتماعی...)
+            continue
         host = urllib.parse.urlparse(h["url"]).netloc.removeprefix("www.")
         cands.append({"title": h["title"], "url": h["url"], "date": h["published"].date().isoformat(),
-                      "sources": [host], "n_sources": 1, "domain": "general", "points": h["points"],
+                      "sources": [host], "n_sources": 1, "domain": hn_domain, "points": h["points"],
                       "comments": h["comments"], "desc": "", "tier": 0.4,
                       "fresh": 1 - (end_dt - h["published"]).total_seconds() / window})
     for c in cands:
@@ -394,12 +435,23 @@ def collect(start, end, refresh=False):
     return cands, health
 
 
-def format_candidates(cands):
+def shortlist(cands, per_domain=4, general=6):
+    """نسخهٔ کوچک‌تر فهرست برای Groq (سقف توکن در دقیقهٔ پلن رایگان کم است)؛ شماره‌ها (id) همان می‌مانند."""
+    count, out = {}, []
+    for c in cands:           # cands از قبل بر اساس امتیاز مرتب است
+        d = c["domain"]
+        if count.get(d, 0) < (general if d == "general" else per_domain):
+            count[d] = count.get(d, 0) + 1
+            out.append(c)
+    return out
+
+
+def format_candidates(cands, snippet=200):
     lines = []
     for c in cands:
         hn = f" | HN: {c['points']} pts, {c['comments']} comments" if c["points"] else ""
         cov = f" | {c['n_sources']} independent sources" if c["n_sources"] > 1 else ""
-        snip = f" | {c['desc']}" if c["desc"] else ""
+        snip = f" | {c['desc'][:snippet]}" if c["desc"] else ""
         lines.append(f"[{c['id']}] ({c['domain']}) {c['title']} — {', '.join(c['sources'])} | {c['date']}{hn}{cov}{snip}")
     return "\n".join(lines)
 
@@ -423,5 +475,5 @@ def health_report():
         by[c["domain"]] = by.get(c["domain"], 0) + 1
     st.caption("کاندیداها به تفکیک حوزه: " + "، ".join(f"{d}: {n}" for d, n in by.items()))
     for c in cands[:8]:
-        st.markdown(f"- **{c['score']}** · {c['title']} _({', '.join(c['sources'][:2])}، {c['date']}"
+        st.markdown(f"- **{c['score']}** · [{c['domain']}] {c['title']} _({', '.join(c['sources'][:2])}، {c['date']}"
                     + (f"، HN {c['points']}" if c["points"] else "") + ")_")
