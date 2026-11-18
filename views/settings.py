@@ -1,6 +1,7 @@
 """صفحهٔ تنظیمات: تست کلیدها، بازنشانی داده‌ها."""
 import streamlit as st
 
+from core import feeds
 from core.ai import diagnose
 from core.auth import logout_button
 from core.backup import backup_section
@@ -32,6 +33,9 @@ def render():
         st.divider()
         if st.button(":material/science: تست کلیدها و مدل‌ها"):
             diagnose()
+        if st.button(":material/rss_feed: تست منابع خبر (فیدها، Google News، Hacker News)"):
+            with st.spinner("در حال دریافت از منابع (حدود ۲۰ تا ۳۰ ثانیه)..."):
+                feeds.health_report()
         if st.button("بازنشانی همهٔ داده‌ها"):
             for k in ("news_list", "deep_topics", "events", "daily"):
                 st.session_state.pop(k, None)

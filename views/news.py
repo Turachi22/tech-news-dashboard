@@ -29,7 +29,8 @@ def _suggest_box():
                 if st.button(":material/add: افزودن به صف", key=f"sugg_add_{i}"):
                     ss.news_list.append({"title": it["title"], "desc": f"{it['desc']} ({it['source']}، {it['date']})",
                                          "icon": "📰", "status": "Pending", "ai": "", "research": [],
-                                         "added": dt.date.today().isoformat(), "week": current_week()})
+                                         "added": dt.date.today().isoformat(), "week": current_week(),
+                                         "url": it.get("url", "")})
                     ss.suggestions.pop(i)
                     st.rerun()
         if ss.get("sugg_sources"):
