@@ -16,7 +16,7 @@ from core.ai import _get_keys, suggest_news
 from core.state import save_data, week_start
 
 DAILY_COUNT = 3          # تعداد خبر اضافه‌شده در هر روز
-FETCH_COUNT = 5          # تعداد خبر درخواستی در هر جستجو (مازاد برای روزهای بعد ذخیره می‌شود)
+FETCH_COUNT = 6          # تعداد خبر درخواستی در هر جستجو (مازاد برای روزهای بعد ذخیره می‌شود)
 WINDOW_DAYS = 3
 SKIP_WEEKDAYS = {4}      # روزهای بدون پیشنهاد (۴ = جمعه). برای پیشنهاد در جمعه: set()
 

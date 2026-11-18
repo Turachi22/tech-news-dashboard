@@ -589,38 +589,72 @@ def research_conspiracies(title, desc, box=None):
                    NEWS_RULES + CONSPIRACY_FORMAT.format(title=title, desc=desc), box)
 
 
-SUGGEST_PROMPT = (
-    "تو دستیار تحقیق یک کانال تکنولوژی فارسی‌زبان هستی. با جست‌وجوی وب، فقط خبرهای تکنولوژی را پیدا کن که "
-    "بین {start} و {end} (هر دو روز شامل) منتشر شده‌اند و دربارهٔ یک پیشرفت یا به‌روزرسانی جدید هستند "
-    "(محصول، مدل هوش مصنوعی، پژوهش، کشف یا رویداد تازه). خبر قدیمی‌تر، تحلیل کلی، مطلب آموزشی و تبلیغ نیاور. "
-    "حداکثر {n} خبر مهم‌ترِ متفاوت. فقط از منابع خبری معتبر بگیر و خودت لینک نساز.\n"
-    "هر خبر را دقیقاً در یک خط و به این قالب بنویس، بدون هیچ متن اضافه:\n"
-    "عنوان فارسی کوتاه | توضیح یک‌جمله‌ای فارسی | تاریخ انتشار (YYYY-MM-DD) | نام منبع\n"
-    "{avoid}"
+# ── معیارهای انتخاب خبر روزانه (به انگلیسی؛ هم به جست‌وجوگر داده می‌شود و هم به Gemini) ──
+# برای تغییر حوزه‌ها یا سخت‌گیری، فقط همین متن را ویرایش کنید. حواستان باشد آکولاد { } در آن نباشد.
+SUGGEST_CRITERIA_EN = (
+    "DOMAINS (spread the picks across DIFFERENT domains; at most 2 per domain):\n"
+    "1) biology, biotech and medicine (gene editing, new drugs and therapies, brain-computer interfaces, "
+    "longevity, lab-grown food)\n"
+    "2) machines of every kind (robots, vehicles, aircraft, ships, drones, industrial and construction machines)\n"
+    "3) artificial intelligence (new models and capabilities, safety incidents, regulation)\n"
+    "4) space (missions, telescopes, discoveries, launch and satellite technology)\n"
+    "5) weapons and defense technology (new systems, drones, hypersonics, AI in warfare)\n"
+    "6) software, internet and cybersecurity (major platforms, big breaches and vulnerabilities, open source, privacy)\n"
+    "7) energy, batteries and materials (fusion, nuclear, solar, superconductors, battery breakthroughs)\n"
+    "8) chips and computing (semiconductors, quantum computing, new hardware)\n"
+    "RANK stories by the combination of:\n"
+    "- FRESH: published inside the window, ideally within the last 3 days; newer is better.\n"
+    "- VIRAL: widely covered or heavily discussed (front pages, trending on social media, Hacker News, Reddit).\n"
+    "- BIG IMPACT: affects the lives, jobs, health, safety or money of many people.\n"
+    "- CONTROVERSIAL: a real public debate, so credible sources exist on both the supporting and the opposing side.\n"
+    "RULES:\n"
+    "- One story = one item. If several articles cover the same event, merge them into ONE item; never list the "
+    "same event twice under different headlines.\n"
+    "- At most ONE item per company or person.\n"
+    "- Skip routine or incremental news: minor product updates and point releases, small funding rounds, "
+    "unsourced rumors, earnings reports, routine launches or test flights, listicles, opinion pieces, sponsored posts.\n"
+    "- Elon Musk's companies (SpaceX, Tesla, xAI, X, Neuralink, Starlink) only if the story is a genuine "
+    "world-level headline, never routine news, and at most ONE such item overall.\n"
 )
 
+SUGGEST_FORMAT_EN = (
+    "OUTPUT: write the result in PERSIAN. One item per line, best item first, exactly in this format with the "
+    "separator | and no other text:\n"
+    "Persian short headline | Persian summary of 1-2 sentences (what happened and why it matters) | "
+    "publication date YYYY-MM-DD | source name | domain (Persian, one or two words) | "
+    "story key (3-4 lowercase English words, identical for the same story) | "
+    "what is disputed and by whom (Persian, one short sentence; write - if nothing is disputed)\n"
+)
+
+SUGGEST_PROMPT = (
+    "You are the research assistant of a Persian-language technology YouTube channel. Use web search to find up "
+    "to {n} technology news items PUBLISHED between {start} and {end} (both inclusive). Use only reputable news "
+    "sources and never invent links or facts.\n" + SUGGEST_CRITERIA_EN + SUGGEST_FORMAT_EN + "{avoid}"
+)
 
 GROQ_SUGGEST_PROMPT = (
-    "Use web search (English and Persian) to find up to {n} of the most important technology news items "
-    "(new products, AI models, research, discoveries, events) that were PUBLISHED between {start} and {end} "
-    "inclusive. Exclude older news, general analysis, tutorials and ads. For each item give: headline, a "
-    "one-sentence summary, the exact publication date (YYYY-MM-DD) and the source name. Only include items whose "
-    "publication date you can confirm from the source. Do not invent anything.\n{avoid}"
-)
-SUGGEST_FROM_SOURCES = (
-    "از میان مواد زیر که موتور جست‌وجو از وب جمع کرده، حداکثر {n} خبر مهم‌ترِ متفاوت را انتخاب کن که تاریخ "
-    "انتشارشان بین {start} و {end} (هر دو شامل) است. چیزی از خودت اضافه نکن و خبری که تاریخ انتشارش در مواد "
-    "نیست نیاور. هر خبر را دقیقاً در یک خط و به این قالب بنویس، بدون هیچ متن اضافه:\n"
-    "عنوان فارسی کوتاه | توضیح یک‌جمله‌ای فارسی | تاریخ انتشار (YYYY-MM-DD) | نام منبع\n{avoid}\n"
+    "Use web search (English and Persian sources) to find up to {n} technology news items PUBLISHED between "
+    "{start} and {end} inclusive, ranked best first.\n" + SUGGEST_CRITERIA_EN +
+    "For each item give: headline; a 1-2 sentence summary (what happened and why it matters); the exact "
+    "publication date (YYYY-MM-DD) taken from the source; the source name; the domain; a short English story key "
+    "(3-4 words); and, if controversial, one sentence on what is disputed and by whom. Include only items whose "
+    "publication date you can confirm. Do not invent anything.\n{avoid}"
 )
 
+SUGGEST_FROM_SOURCES = (
+    "Below are materials collected from the web by a search engine. Pick up to {n} items published between "
+    "{start} and {end} (both inclusive) that best fit these criteria. Use only what is in the materials; add "
+    "nothing of your own; skip any item whose publication date is not in the materials.\n"
+    + SUGGEST_CRITERIA_EN + SUGGEST_FORMAT_EN + "{avoid}\n"
+)
 
 def suggest_news(end_date, days=3, n=5, existing=()):
     """خبرهای منتشرشده در بازهٔ [end_date - days, end_date] را پیشنهاد می‌دهد.
     اول Groq جست‌وجو می‌کند و Gemini خلاصه را به فارسی درمی‌آورد؛ اگر Groq نبود، Gemini با جست‌وجوی خودش.
     خروجی: (فهرست خبرها، متن بخش منابع). خبرِ بدون تاریخ معتبر یا خارج از بازه حذف می‌شود."""
     start = end_date - dt.timedelta(days=days)
-    avoid = ("این عنوان‌ها قبلاً هستند؛ تکرارشان نکن: " + "؛ ".join(list(existing)[:15]) + "\n") if existing else ""
+    avoid = ("ALREADY USED headlines (do not repeat these or the same events): " + "; ".join(list(existing)[:15]) + "\n"
+             if existing else "")
     box = st.empty()
     gem_prompt = SUGGEST_PROMPT.format(start=start.isoformat(), end=end_date.isoformat(), n=n, avoid=avoid)
     text, groq_done = None, False
@@ -630,7 +664,7 @@ def suggest_news(end_date, days=3, n=5, existing=()):
         text = ask_ai(gem_prompt, box, need_search=True, quiet=groq_ok)
         if text:
             box.empty()
-            return _parse_suggestions(text, start, end_date)
+            return _parse_suggestions(text, start, end_date, existing)
         st.session_state["_last_ai_call"] = 0
     if groq_ok:
         try:
@@ -647,15 +681,29 @@ def suggest_news(end_date, days=3, n=5, existing=()):
     if not groq_done and not text and SEARCH_PRIORITY != "gemini":
         text = ask_ai(gem_prompt, box, need_search=True)
     box.empty()
-    return _parse_suggestions(text, start, end_date) if text else (None, "")
+    return _parse_suggestions(text, start, end_date, existing) if text else (None, "")
 
 
-def _parse_suggestions(text, start, end_date):
-    """خطوط «عنوان | توضیح | تاریخ | منبع» را می‌خواند و فقط خبرهای داخل بازهٔ تاریخ را نگه می‌دارد."""
+def _words(text):
+    return {w for w in re.sub(r"[^\w\s]", " ", str(text).lower().replace("\u200c", " ")).split() if len(w) > 1}
+
+
+def _similar(a, b, thr=0.5):
+    wa, wb = _words(a), _words(b)
+    return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= thr
+
+
+MAX_PER_DOMAIN = 2
+
+
+def _parse_suggestions(text, start, end_date, existing=()):
+    """خطوط «عنوان | توضیح | تاریخ | منبع | حوزه | کلید خبر | محل بحث» را می‌خواند (سه فیلد آخر اختیاری).
+    فقط خبرهای داخل بازهٔ تاریخ می‌ماند؛ خبر تکراری (کلید یا عنوان مشابه، یا مشابه خبرهای قبلی) حذف می‌شود
+    و از هر حوزه حداکثر ۲ خبر می‌آید."""
     if not text:
         return None, ""
     body, _, sources = text.partition("\n\n---\n")
-    items = []
+    items, per_domain = [], {}
     for line in body.splitlines():
         parts = [x.strip(" *-•\t") for x in line.split("|")]
         if len(parts) < 4:
@@ -669,7 +717,21 @@ def _parse_suggestions(text, start, end_date):
             continue
         if not (start <= d <= end_date):
             continue
-        items.append({"title": parts[0], "desc": parts[1], "date": d.isoformat(), "source": parts[3]})
+        title, summary, source = parts[0], parts[1], parts[3]
+        domain = parts[4] if len(parts) > 4 else ""
+        key = parts[5] if len(parts) > 5 else ""
+        debate = parts[6] if len(parts) > 6 else ""
+        if any(_similar(title, e) for e in existing):
+            continue
+        if any(_similar(title, i["title"]) or (key and i["key"] and _similar(key, i["key"], 0.6)) for i in items):
+            continue
+        if domain and per_domain.get(domain, 0) >= MAX_PER_DOMAIN:
+            continue
+        per_domain[domain] = per_domain.get(domain, 0) + 1
+        if debate and debate not in ("-", "—", "–"):
+            summary = f"{summary} · محل بحث: {debate}"
+        items.append({"title": title, "desc": summary, "date": d.isoformat(), "source": source,
+                      "domain": domain, "key": key})
     return items, sources
 
 
