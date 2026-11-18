@@ -16,6 +16,7 @@ st.set_page_config(page_title="داشبورد شخصی ساده", layout="wide",
 
 from components.sidebar import render_sidebar  # noqa: E402
 from core.auth import require_login  # noqa: E402
+from core.offline_sync import sync_offline_copy  # noqa: E402
 from core.pwa import inject_pwa  # noqa: E402
 from core.state import init_state, save_data  # noqa: E402
 from core.style import apply_css  # noqa: E402
@@ -37,4 +38,5 @@ active = render_sidebar(ROUTES)
 for key, _label, render in ROUTES:
     if key == active:
         render()
+sync_offline_copy()  # نسخهٔ آفلاین برای پوستهٔ موبایل (فقط وقتی محتوا تغییر کرده)
 save_data()  # ذخیرهٔ خودکار در پایان هر اجرا
