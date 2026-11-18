@@ -115,11 +115,36 @@ def normalize_news():
                 n["added"], n["week"] = dt.date.today().isoformat(), current_week()
 
 
+def normalize_deep():
+    """به موضوع‌های دیپ‌دایو روز و هفتهٔ افزودن را اضافه می‌کند (موضوع‌های قدیمی: هفتهٔ جاری)."""
+    for t in st.session_state.deep_topics:
+        t.setdefault("scenario", "")
+        t.setdefault("narration", "")
+        if not t.get("added"):
+            t["added"] = dt.date.today().isoformat()
+        if not t.get("week"):
+            try:
+                t["week"] = week_start(dt.date.fromisoformat(t["added"])).isoformat()
+            except ValueError:
+                t["added"], t["week"] = dt.date.today().isoformat(), current_week()
+
+
+def new_topic(title):
+    return {"title": title, "status": "Pending", "scenario": "", "narration": "",
+            "added": dt.date.today().isoformat(), "week": current_week()}
+
+
 def purge_old_weeks():
     """خبرهای قدیمی‌تر از (هفتهٔ جاری + KEEP_PREVIOUS_WEEKS هفتهٔ قبل) را حذف می‌کند."""
     ss = st.session_state
     cutoff = (week_start(dt.date.today()) - dt.timedelta(weeks=KEEP_PREVIOUS_WEEKS)).isoformat()
     keep = [n for n in ss.news_list if n.get("week", "") >= cutoff]
+    old_topics = len(ss.deep_topics)
+    ss.deep_topics = [t for t in ss.deep_topics if t.get("week", "") >= cutoff]
+    if len(ss.deep_topics) != old_topics:
+        for k in [k for k in ss.keys() if str(k).startswith("scn_edit_")]:
+            del ss[k]  # کلیدها بر اساس شمارهٔ موضوع‌اند
+        st.toast(f"{old_topics - len(ss.deep_topics)} موضوع دیپ‌دایو قدیمی‌تر از {KEEP_PREVIOUS_WEEKS + 1} هفته حذف شد.")
     removed = len(ss.news_list) - len(keep)
     if removed:
         ss.news_list = keep
@@ -164,5 +189,6 @@ def init_state():
     ss.setdefault("views", [120, 250, 180, 300, 450, 380, 520])
     ss.setdefault("total_views", 12424)
     normalize_news()
+    normalize_deep()
     purge_old_weeks()
     purge_expired()
