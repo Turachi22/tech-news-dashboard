@@ -5,6 +5,7 @@ import time
 import streamlit as st
 
 from core.ai import NEWS_STRUCTURE, ask_ai, build_followup_prompt, research_conspiracies, research_news
+from core import richtext
 from core.export import DOCX_MIME, HAS_DOCX, make_docx
 from core.helpers import H, chip, esc, fa, svg
 from core.state import (ARCHIVE_DAYS, KEEP_PREVIOUS_WEEKS, WEEKDAY_FA, current_week, days_left,
@@ -15,20 +16,10 @@ def _now():
     return dt.datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-def _save_script(idx):
-    """هم با خارج‌شدن از کادر متن و هم با دکمهٔ «ذخیره» اجرا می‌شود."""
-    ss = st.session_state
-    item = ss.news_list[idx]
-    item["script"] = ss.get(f"script_{idx}", "")
-    item["script_saved"] = _now()
-    save_data()
-
-
 def script_section(idx, item):
-    """(عنوان، توضیح، متن) برای خروجی Word؛ متن فعلی کادر را می‌خواند، حتی اگر ذخیره نشده باشد."""
-    body = st.session_state.get(f"script_{idx}", item.get("script", ""))
+    """(عنوان، توضیح، متن ساده، HTML رنگی) برای خروجی Word؛ آخرین نسخهٔ ذخیره‌شده."""
     meta = f"تاریخ تأیید: {item.get('decided') or '—'}"
-    return (item["title"], meta, body)
+    return (item["title"], meta, item.get("script", ""), item.get("script_html", ""))
 
 
 def approved_sections():
@@ -38,19 +29,26 @@ def approved_sections():
 
 def _script_box(idx, item):
     with st.expander(":material/edit_note: اسکریپت"):
+        uid = item.setdefault("uid", richtext.new_uid())
+        base = item.get("script_html") or richtext.md_to_html(item.get("script", ""))
+        val = richtext.rich_editor(base, key=f"rte_{uid}_{item.get('rte_ver', 0)}", height=300)
+        if isinstance(val, dict) and val.get("html") is not None:
+            clean = richtext.sanitize(val["html"])
+            if clean != item.get("script_html"):
+                item["script_html"] = clean
+                item["script"] = richtext.html_to_text(clean)
+                item["script_saved"] = _now()
+                save_data()
         saved = item.get("script_saved")
-        st.text_area("متن نهایی اسکریپت", value=item.get("script", ""), height=260,
-                     key=f"script_{idx}", on_change=_save_script, args=(idx,))
-        st.caption(f"آخرین ذخیره: {fa(saved)}" if saved else "هنوز ذخیره نشده. با خارج‌شدن از کادر، خودکار ذخیره می‌شود.")
+        st.caption(f"آخرین ذخیره: {fa(saved)}" if saved else
+                   "متن را انتخاب کنید و اندازه یا رنگ بدهید؛ بعد داخل ویرایشگر «ذخیره» (یا Ctrl+S) را بزنید.")
         with st.container(key=f"keep_script_{idx}"):
-            c_save, c_word, c_txt = st.columns(3)
-            c_save.button(":material/save: ذخیره", key=f"save_script_{idx}", type="primary",
-                          on_click=_save_script, args=(idx,))
+            c_word, c_txt = st.columns(2)
             if HAS_DOCX:
                 c_word.download_button(":material/download: Word", data=make_docx([script_section(idx, item)]),
                                        file_name=f"script_{idx + 1}.docx", mime=DOCX_MIME,
                                        key=f"dl_word_{idx}")
-            c_txt.download_button(":material/download: متن", data=st.session_state.get(f"script_{idx}", item.get("script", "")),
+            c_txt.download_button(":material/download: متن", data=item.get("script", ""),
                                   file_name=f"script_{idx + 1}.txt", key=f"dl_txt_{idx}")
 
 

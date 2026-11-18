@@ -1,0 +1,211 @@
+<!doctype html>
+<html dir="rtl" lang="fa">
+<head>
+<meta charset="utf-8">
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap");
+:root { --bg:#0b1220; --bd:#26324f; --fg:#f1f5ff; --mut:#8b97b5; --ac:#2dd4bf; }
+* { box-sizing: border-box; }
+body { margin:0; background:transparent; color:var(--fg); font-family:Vazirmatn,Tahoma,sans-serif; }
+.bar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 8px; background:var(--bg);
+       border:1px solid var(--bd); border-bottom:0; border-radius:12px 12px 0 0; }
+.bar button, .bar select { font:inherit; font-size:13px; color:var(--fg); background:#111b30; border:1px solid var(--bd);
+       border-radius:8px; height:32px; padding:0 9px; cursor:pointer; }
+.bar button:hover, .bar select:hover { border-color:var(--ac); }
+.bar select { width:64px; padding:0 4px; direction:ltr; }
+.sep { width:1px; height:22px; background:var(--bd); }
+#colorBtn { display:flex; align-items:center; gap:2px; padding:0 8px; }
+#colorBtn .A { font-weight:700; font-size:16px; line-height:1; border-bottom:4px solid #ef4444; padding:0 2px 1px; direction:ltr; }
+#pal { position:absolute; z-index:5; top:44px; right:70px; display:none; background:var(--bg); border:1px solid var(--bd);
+       border-radius:10px; padding:8px; width:196px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+#pal.on { display:block; }
+.sw { display:inline-block; width:22px; height:22px; margin:2px; border-radius:5px; border:1px solid #ffffff33; cursor:pointer; }
+.sw:hover { outline:2px solid var(--ac); }
+#pal label { display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; color:var(--mut); }
+#pal input[type=color] { width:36px; height:26px; padding:0; border:0; background:none; }
+.sp { flex:1; }
+#save { background:var(--ac); color:#04211d; border-color:var(--ac); font-weight:700; }
+#st { font-size:12px; color:var(--mut); }
+#st.dirty { color:#fbbf24; }
+#ed { min-height:120px; overflow:auto; padding:12px 14px; line-height:2; font-size:16px; outline:none;
+      background:#0f1729; border:1px solid var(--bd); border-radius:0 0 12px 12px; }
+#ed:focus { border-color:var(--ac); }
+#ed div, #ed p { margin:0; }
+</style>
+</head>
+<body>
+<div class="bar" id="bar">
+  <select id="size" title="اندازهٔ متن انتخاب‌شده"></select>
+  <button id="up" title="بزرگ‌تر">A<sup>+</sup></button>
+  <button id="down" title="کوچک‌تر">A<sup>−</sup></button>
+  <span class="sep"></span>
+  <button id="colorBtn" title="رنگ متن انتخاب‌شده"><span class="A" id="colA">A</span><span>▾</span></button>
+  <button id="bold" title="پررنگ"><b>B</b></button>
+  <button id="clear" title="پاک‌کردن قالب (رنگ و اندازه) از متن انتخاب‌شده">پاک‌کردن قالب</button>
+  <span class="sp"></span>
+  <span id="st"></span>
+  <button id="save">ذخیره</button>
+</div>
+<div id="pal"></div>
+<div id="ed" contenteditable="true" spellcheck="false"></div>
+
+<script>
+(function () {
+  var ed = document.getElementById("ed"), st = document.getElementById("st"),
+      sizeSel = document.getElementById("size"), pal = document.getElementById("pal"),
+      colA = document.getElementById("colA");
+  var SIZES = [8,9,10,11,12,14,16,18,20,22,24,26,28,32,36,40,48,60,72];
+  var COLORS = ["#f1f5ff","#9ca3af","#ef4444","#f97316","#facc15","#22c55e","#2dd4bf","#38bdf8","#3b82f6","#a78bfa","#ec4899","#ffffff","#000000","#b91c1c","#15803d","#1d4ed8"];
+  var BASE = 16, lastColor = "#ef4444", saved = null, started = false, dirty = false;
+  var inited = false;
+
+  function post(msg) { msg.isStreamlitMessage = true; window.parent.postMessage(msg, "*"); }
+  function setHeight() { post({ type: "streamlit:setFrameHeight", height: document.body.scrollHeight + 6 }); }
+
+  SIZES.forEach(function (s) { var o = document.createElement("option"); o.value = s; o.textContent = s; sizeSel.appendChild(o); });
+  sizeSel.value = BASE;
+  COLORS.forEach(function (c) {
+    var d = document.createElement("span"); d.className = "sw"; d.style.background = c; d.dataset.c = c; d.title = c;
+    pal.appendChild(d);
+  });
+  var lab = document.createElement("label");
+  lab.innerHTML = '<input type="color" id="custom" value="#ef4444"><span>رنگ دلخواه</span>';
+  pal.appendChild(lab);
+
+  try { document.execCommand("defaultParagraphSeparator", false, "div"); } catch (e) {}
+
+  // ---- انتخاب متن را نگه می‌داریم تا کلیک روی نوار ابزار آن را از دست ندهد
+  function saveSel() {
+    var s = window.getSelection();
+    if (s.rangeCount && ed.contains(s.anchorNode)) saved = s.getRangeAt(0).cloneRange();
+  }
+  function restoreSel() {
+    ed.focus();
+    if (saved) { var s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); }
+  }
+  function hasSelection() { return saved && !saved.collapsed && ed.contains(saved.commonAncestorContainer); }
+  function needSel() { flash("اول کلمه یا جمله را انتخاب کنید"); }
+  function flash(t) { st.textContent = t; st.className = "dirty"; setTimeout(showState, 2200); }
+  function showState() { st.textContent = dirty ? "ذخیره نشده" : ""; st.className = dirty ? "dirty" : ""; }
+  function markDirty() { dirty = true; showState(); }
+
+  document.addEventListener("selectionchange", function () { saveSel(); syncSize(); });
+
+  function curPx() {
+    var n = saved ? saved.startContainer : null;
+    if (n && n.nodeType === 3) n = n.parentNode;
+    if (!n || !ed.contains(n)) n = ed;
+    return Math.round(parseFloat(getComputedStyle(n).fontSize)) || BASE;
+  }
+  function syncSize() {
+    var px = curPx();
+    if (!sizeSel.querySelector('option[value="' + px + '"]')) {
+      var o = document.createElement("option"); o.value = px; o.textContent = px;
+      var placed = false;
+      Array.prototype.forEach.call(sizeSel.options, function (x) { if (!placed && +x.value > px) { sizeSel.insertBefore(o, x); placed = true; } });
+      if (!placed) sizeSel.appendChild(o);
+    }
+    sizeSel.value = px;
+  }
+
+  // ---- اندازه
+  function applySize(px) {
+    if (!hasSelection()) { needSel(); syncSize(); return; }
+    restoreSel();
+    document.execCommand("styleWithCSS", false, false);
+    document.execCommand("fontSize", false, "7");           // ۷ = علامت‌گذاری موقت؛ بعد به px واقعی تبدیل می‌شود
+    var fonts = ed.querySelectorAll('font[size="7"]');
+    Array.prototype.forEach.call(fonts, function (f) {
+      var sp = document.createElement("span");
+      sp.style.fontSize = px + "px";
+      while (f.firstChild) sp.appendChild(f.firstChild);
+      f.parentNode.replaceChild(sp, f);
+      Array.prototype.forEach.call(sp.querySelectorAll("[style*='font-size']"), function (e) { e.style.removeProperty("font-size"); });
+    });
+    cleanup(); saveSel(); syncSize(); markDirty();
+  }
+  sizeSel.addEventListener("change", function () { applySize(parseInt(sizeSel.value, 10)); });
+  function step(d) { var px = Math.max(8, Math.min(96, curPx() + d)); applySize(px); }
+  document.getElementById("up").addEventListener("click", function () { step(2); });
+  document.getElementById("down").addEventListener("click", function () { step(-2); });
+
+  // ---- رنگ
+  function applyColor(c) {
+    if (!hasSelection()) { needSel(); return; }
+    restoreSel();
+    document.execCommand("styleWithCSS", false, true);
+    document.execCommand("foreColor", false, c);
+    lastColor = c; colA.style.borderBottomColor = c;
+    cleanup(); saveSel(); markDirty();
+  }
+  document.getElementById("colorBtn").addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (e.target.closest(".A")) { applyColor(lastColor); return; }   // کلیک روی «A»: آخرین رنگ
+    pal.classList.toggle("on");
+  });
+  pal.addEventListener("mousedown", function (e) { if (e.target.tagName !== "INPUT") e.preventDefault(); });
+  pal.addEventListener("click", function (e) {
+    var c = e.target.dataset && e.target.dataset.c;
+    if (c) { applyColor(c); pal.classList.remove("on"); }
+  });
+  document.getElementById("custom").addEventListener("change", function (e) { applyColor(e.target.value); pal.classList.remove("on"); });
+  document.addEventListener("click", function (e) { if (!pal.contains(e.target)) pal.classList.remove("on"); });
+
+  // ---- پررنگ و پاک‌کردن قالب
+  document.getElementById("bold").addEventListener("click", function () {
+    if (!hasSelection()) { needSel(); return; }
+    restoreSel(); document.execCommand("bold"); saveSel(); markDirty();
+  });
+  document.getElementById("clear").addEventListener("click", function () {
+    if (!hasSelection()) { needSel(); return; }
+    restoreSel(); document.execCommand("removeFormat"); cleanup(); saveSel(); syncSize(); markDirty();
+  });
+
+  // دکمه‌ها نباید انتخاب را بردارند
+  Array.prototype.forEach.call(document.querySelectorAll(".bar button"), function (b) {
+    b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+  });
+
+  function cleanup() {   // spanهای خالی
+    Array.prototype.forEach.call(ed.querySelectorAll("span"), function (s) {
+      if (!s.getAttribute("style") && !s.attributes.length) {
+        while (s.firstChild) s.parentNode.insertBefore(s.firstChild, s);
+        s.parentNode.removeChild(s);
+      }
+    });
+  }
+
+  // ---- چسباندن فقط به‌صورت متن ساده
+  ed.addEventListener("paste", function (e) {
+    e.preventDefault();
+    var t = (e.clipboardData || window.clipboardData).getData("text/plain");
+    document.execCommand("insertText", false, t);
+  });
+  ed.addEventListener("input", function () { markDirty(); });
+
+  // ---- ذخیره: مقدار فقط با دکمهٔ «ذخیره» به برنامه برمی‌گردد (تا با هر حرف صفحه دوباره اجرا نشود)
+  document.getElementById("save").addEventListener("click", function () {
+    post({ type: "streamlit:setComponentValue", dataType: "json", value: { html: ed.innerHTML, t: Date.now() } });
+    dirty = false; st.textContent = "ذخیره شد ✓"; st.className = "";
+    setTimeout(showState, 2500);
+  });
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); document.getElementById("save").click(); }
+  });
+
+  window.addEventListener("message", function (e) {
+    if (!e.data || e.data.type !== "streamlit:render") return;
+    var a = e.data.args || {};
+    if (!inited) {             // فقط بار اول؛ بعد از آن محتوای در حال ویرایش را عوض نمی‌کنیم
+      inited = true;
+      ed.innerHTML = a.html || "";
+      ed.style.height = (a.height || 300) + "px";
+    }
+    setHeight();
+  });
+  post({ type: "streamlit:componentReady", apiVersion: 1 });
+  setHeight();
+})();
+</script>
+</body>
+</html>
