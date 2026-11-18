@@ -95,8 +95,10 @@
   // دریافت نسخه از برنامه (فقط از دامنهٔ streamlit.app)
   window.addEventListener('message', function (e) {
     var okOrigin = /^https:\/\/([a-z0-9-]+\.)*streamlit\.app$/i.test(e.origin);
-    if (!okOrigin || !e.data || e.data.type !== 'sade-offline' || !e.data.data) return;
-    saveSnap({ at: new Date().toISOString(), digest: e.data.digest, data: e.data.data });
+    if (!okOrigin || !e.data || e.data.type !== 'sade-offline' || !(e.data.data || e.data.ct)) return;
+    var d = e.data, rec = { at: new Date().toISOString(), digest: d.digest, enc: !!d.enc };
+    if (d.enc) { rec.salt = d.salt; rec.iter = d.iter; rec.iv = d.iv; rec.ct = d.ct; } else { rec.data = d.data; }
+    saveSnap(rec);
   });
 
   // ---------- نمایش‌دهندهٔ ساده
@@ -146,6 +148,31 @@
     return doc.body.firstChild.innerHTML;
   }
 
+  function b64d(s) { var b = atob(s), a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+  function decrypt(pw, rec) {   // همان رمز برنامه → همان کلید (PBKDF2-SHA256) → رمزگشایی AES-GCM
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']).then(function (base) {
+      return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64d(rec.salt), iterations: rec.iter, hash: 'SHA-256' },
+        base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    }).then(function (key) {
+      return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(rec.iv) }, key, b64d(rec.ct));
+    }).then(function (pt) { return JSON.parse(new TextDecoder().decode(pt)); });
+  }
+  function showLock(rec) {
+    $('rsync').textContent = ''; $('rback').style.display = 'none'; $('rtabs').style.display = 'none';
+    $('rbody').innerHTML = '<div class="empty"><div>رمز برنامه را وارد کنید</div>' +
+      '<input id="pw" type="password" autocomplete="current-password" style="margin:14px 0 8px;width:80%;max-width:300px;padding:10px;border-radius:10px;border:1px solid #26324f;background:#0f1729;color:#f1f5ff;font:inherit;text-align:center">' +
+      '<br><button id="pwgo" class="item" style="width:auto;display:inline-block;padding:9px 26px">باز کردن</button><div id="pwerr" style="color:#fb7185;font-size:13px;margin-top:8px"></div></div>';
+    function go() {
+      var pw = $('pw').value; if (!pw) return;
+      $('pwgo').disabled = true; $('pwerr').textContent = '';
+      decrypt(pw, rec).then(function (data) { snap = { at: rec.at, data: data }; view = null; render(); })
+        .catch(function () { $('pwerr').textContent = 'رمز درست نیست.'; $('pwgo').disabled = false; });
+    }
+    $('pwgo').onclick = go; $('pw').onkeydown = function (ev) { if (ev.key === 'Enter') go(); };
+    setTimeout(function () { try { $('pw').focus(); } catch (e) {} }, 50);
+  }
+
   var snap = null, tab = 'news', view = null;
   function fmtDate(iso) { try { return new Date(iso).toLocaleString('fa-IR'); } catch (e) { return ''; } }
   function render() {
@@ -189,8 +216,14 @@
     return h + '</div>';
   }
 
-  function open() { loadSnap().then(function (s) { snap = s; view = null; $('rtitle').textContent = 'نسخهٔ آفلاین'; $('reader').classList.add('on'); render(); }); }
-  function close() { $('reader').classList.remove('on'); }
+  function open() {
+    loadSnap().then(function (s) {
+      view = null; snap = null; $('rtitle').textContent = 'نسخهٔ آفلاین'; $('reader').classList.add('on');
+      if (s && s.enc) showLock(s);
+      else { snap = s ? { at: s.at, data: s.data } : null; render(); }
+    });
+  }
+  function close() { $('reader').classList.remove('on'); snap = null; view = null; $('rbody').innerHTML = ''; }
   $('rclose').onclick = close;
   $('rback').onclick = function () { view = null; $('rtitle').textContent = 'نسخهٔ آفلاین'; render(); };
   $('tNews').onclick = function () { tab = 'news'; $('tNews').className = 'on'; $('tDeep').className = ''; render(); };
