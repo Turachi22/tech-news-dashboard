@@ -8,7 +8,7 @@ from google import genai
 from google.genai import types
 import streamlit as st
 
-from core import groq_client
+from core import feeds, groq_client
 from core.groq_client import GroqError
 from core.helpers import fa
 
@@ -648,6 +648,91 @@ SUGGEST_FROM_SOURCES = (
     + SUGGEST_CRITERIA_EN + SUGGEST_FORMAT_EN + "{avoid}\n"
 )
 
+SUGGEST_FROM_CANDIDATES = (
+    "Below is a numbered list of CANDIDATE technology news items that were automatically collected from reputable "
+    "sources. Each line shows: [id], (domain tag), headline, sources, publication date, optional Hacker News score, "
+    "the number of independent sources that covered it, and a short snippet. All were published between {start} and "
+    "{end}.\nPick up to {n} items that best fit the criteria below. Choose ONLY from this list and refer to items by "
+    "their id. Use the signals as evidence: many independent sources and a high Hacker News score indicate VIRAL; a "
+    "high comment count relative to points indicates CONTROVERSIAL. Write each summary using ONLY the headline and "
+    "snippet given; never add facts that are not in them.\n"
+    + SUGGEST_CRITERIA_EN +
+    "OUTPUT: write in PERSIAN. One item per line, best first, exactly in this format with the separator | and no "
+    "other text:\n"
+    "id (number only) | Persian short headline | Persian summary of 1-2 sentences (what happened and why it matters) | "
+    "domain (Persian, one or two words) | story key (3-4 lowercase English words, identical for the same story) | "
+    "what is disputed and by whom (Persian, one short sentence; write - if nothing is disputed)\n"
+    "{avoid}\nCANDIDATES:\n"
+)
+
+MUSK_RE = re.compile(r"spacex|starship|starlink|tesla|\bxai\b|neuralink|boring company|elon|musk|optimus", re.I)
+
+
+def _parse_picks(text, cands, existing=()):
+    """خروجی Gemini در حالت «انتخاب از فهرست»: شمارهٔ کاندید ← لینک، منبع و تاریخ واقعی از خود کاندید گرفته می‌شود
+    (نه از مدل). تکراری‌ها، خبر قبلی، بیش از ۲ خبر در یک حوزه و بیش از یک خبر مرتبط با ماسک حذف می‌شود."""
+    by_id = {c["id"]: c for c in cands}
+    items, per_domain, musk = [], {}, 0
+    body = text.partition("\n\n---\n")[0]
+    for line in body.splitlines():
+        parts = [x.strip(" *-•\t") for x in line.split("|")]
+        if len(parts) < 3:
+            continue
+        m = re.search(r"\d+", parts[0])
+        c = by_id.get(int(m.group(0))) if m else None
+        if not c:
+            continue
+        title, summary = parts[1], parts[2]
+        domain = DOMAIN_FA_BY_KEY.get(c["domain"]) or (parts[3] if len(parts) > 3 else "")
+        key = parts[4] if len(parts) > 4 else ""
+        debate = parts[5] if len(parts) > 5 else ""
+        if any(_similar(title, e) for e in existing):
+            continue
+        if any(_similar(title, i["title"]) or (key and i["key"] and _similar(key, i["key"], 0.6)) for i in items):
+            continue
+        if domain and per_domain.get(domain, 0) >= MAX_PER_DOMAIN:
+            continue
+        if MUSK_RE.search(c["title"] + " " + c["desc"]):
+            if musk >= 1:
+                continue
+            musk += 1
+        per_domain[domain] = per_domain.get(domain, 0) + 1
+        if debate and debate not in ("-", "—", "–"):
+            summary += f" · محل بحث: {debate}"
+        signals = []
+        if c["n_sources"] >= 3:
+            signals.append(f"{c['n_sources']} منبع مستقل")
+        if c["points"] >= 100:
+            signals.append(f"{c['points']} امتیاز در Hacker News")
+        if signals:
+            summary += " · سیگنال: " + "، ".join(signals)
+        items.append({"title": title, "desc": summary, "date": c["date"], "source": "، ".join(c["sources"][:2]),
+                      "domain": domain, "key": key, "url": c["url"]})
+    sources = ("**منابع (لینک مستقیم هر خبر):**\n" +
+               "\n".join(f"{i}. [{it['source']}]({it['url']})" for i, it in enumerate(items, 1))) if items else ""
+    return items, sources
+
+
+def _from_feeds(start, end_date, n, avoid, existing, box):
+    """لایهٔ ۰–۲: خبرها را از فیدها/Google News/HN می‌گیرد و Gemini (بدون جست‌وجو و بدون مصرف سهمیهٔ جست‌وجو) انتخاب می‌کند.
+    اگر منبعی کم بود یا Gemini جواب نداد، None برمی‌گرداند تا جست‌وجوی قدیمی ادامه یابد."""
+    try:
+        cands, _health = feeds.collect(start, end_date)
+    except Exception as exc:  # noqa: BLE001
+        st.caption(f"جمع‌آوری از فیدها انجام نشد ({type(exc).__name__}) — جست‌وجوی هوشمند استفاده می‌شود.")
+        return None
+    if len(cands) < 8:
+        st.caption("فیدها خبر کافی نداشتند — جست‌وجوی هوشمند استفاده می‌شود.")
+        return None
+    prompt = SUGGEST_FROM_CANDIDATES.format(n=n, start=start.isoformat(), end=end_date.isoformat(),
+                                            avoid=avoid) + feeds.format_candidates(cands)
+    text = ask_ai(prompt, box, ext_sources=[])   # ext_sources=[] ⇒ بدون جست‌وجوی گوگل
+    if not text:
+        return None
+    items, sources = _parse_picks(text, cands, existing)
+    return (items, sources) if items else None
+
+
 def suggest_news(end_date, days=3, n=5, existing=()):
     """خبرهای منتشرشده در بازهٔ [end_date - days, end_date] را پیشنهاد می‌دهد.
     اول Groq جست‌وجو می‌کند و Gemini خلاصه را به فارسی درمی‌آورد؛ اگر Groq نبود، Gemini با جست‌وجوی خودش.
@@ -656,6 +741,11 @@ def suggest_news(end_date, days=3, n=5, existing=()):
     avoid = ("ALREADY USED headlines (do not repeat these or the same events): " + "; ".join(list(existing)[:15]) + "\n"
              if existing else "")
     box = st.empty()
+    got = _from_feeds(start, end_date, n, avoid, existing, box)
+    if got:
+        box.empty()
+        return got
+    st.session_state["_last_ai_call"] = 0
     gem_prompt = SUGGEST_PROMPT.format(start=start.isoformat(), end=end_date.isoformat(), n=n, avoid=avoid)
     text, groq_done = None, False
     groq_ok = groq_client.available()
@@ -694,6 +784,7 @@ def _similar(a, b, thr=0.5):
 
 
 MAX_PER_DOMAIN = 2
+DOMAIN_FA_BY_KEY = feeds.DOMAIN_FA
 
 
 def _parse_suggestions(text, start, end_date, existing=()):

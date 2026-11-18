@@ -31,7 +31,8 @@ def _add(items, today, iso):
     for it in items:
         ss.news_list.append({
             "title": it["title"], "desc": f"{it['desc']} ({it['source']}، {it['date']})", "icon": "📰",
-            "status": "Pending", "ai": "", "research": [], "added": iso, "week": week, "auto": True})
+            "status": "Pending", "ai": "", "research": [], "added": iso, "week": week, "auto": True,
+            "url": it.get("url", "")})
 
 
 def _usable_reserve(today):
