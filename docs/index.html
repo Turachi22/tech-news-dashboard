@@ -4,17 +4,46 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>داشبورد شخصی ساده</title>
-<meta name="theme-color" content="#14122e">
+<meta name="theme-color" content="#060a14">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
-  html, body { margin: 0; height: 100%; background: #14122e; overflow: hidden; }
-  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #14122e;
+  html, body { margin: 0; height: 100%; background: #060a14; overflow: hidden; font-family: Vazirmatn, Tahoma, sans-serif; }
+  iframe#app { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #060a14;
            padding-top: env(safe-area-inset-top); box-sizing: border-box; }
   #splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-            background: #14122e; transition: opacity .5s; pointer-events: none; }
+            background: #060a14; transition: opacity .5s; pointer-events: none; }
   #splash img { width: 140px; height: 140px; border-radius: 28px; }
+
+  /* نوار «اینترنت قطع است» */
+  #offbar { position: fixed; top: env(safe-area-inset-top); left: 0; right: 0; z-index: 30; display: none; align-items: center;
+            justify-content: space-between; gap: 8px; padding: 8px 12px; background: #3b2a05; color: #fde68a; font-size: 13px; }
+  #offbar button { font: inherit; background: #fbbf24; color: #2a1d00; border: 0; border-radius: 8px; padding: 6px 12px; font-weight: 700; }
+
+  /* صفحهٔ خوانش آفلاین */
+  #reader { position: fixed; inset: 0; z-index: 40; display: none; flex-direction: column; background: #060a14; color: #f1f5ff;
+            padding-top: env(safe-area-inset-top); }
+  #reader.on { display: flex; }
+  .rbar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #1f2a44; background: #0b1220; }
+  .rbar b { flex: 1; font-size: 15px; }
+  .rbar small { color: #8b97b5; font-size: 11px; }
+  .rbar button { font: inherit; font-size: 13px; color: #f1f5ff; background: #111b30; border: 1px solid #26324f; border-radius: 8px; padding: 6px 12px; }
+  .tabs { display: flex; gap: 8px; padding: 8px 12px; }
+  .tabs button { flex: 1; font: inherit; font-size: 14px; color: #8b97b5; background: #0b1220; border: 1px solid #26324f; border-radius: 10px; padding: 9px; }
+  .tabs button.on { color: #04211d; background: #2dd4bf; border-color: #2dd4bf; font-weight: 700; }
+  #rbody { flex: 1; overflow: auto; padding: 4px 14px 40px; -webkit-overflow-scrolling: touch; }
+  .item { display: block; width: 100%; text-align: right; font: inherit; color: #f1f5ff; background: #0f1729; border: 1px solid #1f2a44;
+          border-radius: 12px; padding: 12px; margin: 8px 0; }
+  .item small { display: block; color: #8b97b5; margin-top: 4px; font-size: 12px; }
+  .doc { line-height: 2; font-size: 16px; }
+  .doc h1, .doc h2, .doc h3 { margin: 18px 0 6px; color: #5eead4; }
+  .doc h2 { font-size: 18px; } .doc h3 { font-size: 16px; }
+  .doc ul { padding-right: 20px; margin: 6px 0; }
+  .doc a { color: #38bdf8; }
+  .doc hr { border: 0; border-top: 1px solid #1f2a44; margin: 16px 0; }
+  .vtitle { font-size: 13px; color: #8b97b5; margin: 18px 0 4px; }
+  .empty { color: #8b97b5; text-align: center; margin-top: 40px; line-height: 2; }
 </style>
 </head>
 <body>
@@ -22,11 +51,165 @@
 <iframe id="app" title="داشبورد شخصی ساده"
         src="https://tech-news-dashboard-73aobahdtrxbfznqe8hcci.streamlit.app/?embed=true&page=home"
         allow="clipboard-write; clipboard-read"></iframe>
+
+<div id="offbar"><span>اینترنت قطع است</span><button id="openOff">نسخهٔ آفلاین</button></div>
+
+<div id="reader">
+  <div class="rbar"><b id="rtitle">نسخهٔ آفلاین</b><small id="rsync"></small><button id="rback" style="display:none">بازگشت</button><button id="rclose">بستن</button></div>
+  <div class="tabs" id="rtabs"><button id="tNews" class="on">اخبار</button><button id="tDeep">دیپ‌دایو</button></div>
+  <div id="rbody"></div>
+</div>
+
 <script>
-  document.getElementById('app').addEventListener('load', function () {
-    setTimeout(function () { document.getElementById('splash').style.opacity = 0; }, 800);
+(function () {
+  var APP_SUFFIX = 'streamlit.app';
+  var DB = 'sade-offline', STORE = 'kv', KEY = 'snapshot';
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---------- ذخیره‌سازی روی گوشی (IndexedDB؛ در نبودش localStorage)
+  function dbOpen() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open(DB, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore(STORE); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  }
+  function saveSnap(obj) {
+    return dbOpen().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).put(obj, KEY);
+        tx.oncomplete = res; tx.onerror = function () { rej(tx.error); };
+      });
+    }).catch(function () { try { localStorage.setItem(KEY, JSON.stringify(obj)); } catch (e) {} });
+  }
+  function loadSnap() {
+    return dbOpen().then(function (db) {
+      return new Promise(function (res) {
+        var q = db.transaction(STORE).objectStore(STORE).get(KEY);
+        q.onsuccess = function () { res(q.result || null); }; q.onerror = function () { res(null); };
+      });
+    }).catch(function () { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } });
+  }
+
+  // دریافت نسخه از برنامه (فقط از دامنهٔ streamlit.app)
+  window.addEventListener('message', function (e) {
+    var okOrigin = /^https:\/\/([a-z0-9-]+\.)*streamlit\.app$/i.test(e.origin);
+    if (!okOrigin || !e.data || e.data.type !== 'sade-offline' || !e.data.data) return;
+    saveSnap({ at: new Date().toISOString(), digest: e.data.digest, data: e.data.data });
+  });
+
+  // ---------- نمایش‌دهندهٔ ساده
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function inline(s) {
+    s = esc(s);
+    s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^\s*][^*]*?)\*(?!\*)/g, '$1<i>$2</i>');
+    return s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  }
+  function md(text) {
+    var out = [], inList = false;
+    String(text || '').split('\n').forEach(function (ln) {
+      var m;
+      if ((m = ln.match(/^(#{1,3})\s+(.*)$/))) { if (inList) { out.push('</ul>'); inList = false; } out.push('<h' + m[1].length + '>' + inline(m[2]) + '</h' + m[1].length + '>'); }
+      else if (/^\s*---+\s*$/.test(ln)) { if (inList) { out.push('</ul>'); inList = false; } out.push('<hr>'); }
+      else if ((m = ln.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/))) { if (!inList) { out.push('<ul>'); inList = true; } out.push('<li>' + inline(m[1]) + '</li>'); }
+      else if (ln.trim() === '') { if (inList) { out.push('</ul>'); inList = false; } }
+      else { if (inList) { out.push('</ul>'); inList = false; } out.push('<p style="margin:6px 0">' + inline(ln) + '</p>'); }
+    });
+    if (inList) out.push('</ul>');
+    return out.join('');
+  }
+  var OK_TAGS = { SPAN: 1, B: 1, STRONG: 1, I: 1, EM: 1, U: 1, BR: 1, DIV: 1, P: 1 };
+  function cleanStyle(st) {
+    var keep = [];
+    String(st || '').split(';').forEach(function (d) {
+      var i = d.indexOf(':'); if (i < 0) return;
+      var k = d.slice(0, i).trim().toLowerCase(), v = d.slice(i + 1).trim();
+      if (k === 'color' && /^(#[0-9a-f]{3,8}|rgba?\([\d\s,.%]+\)|[a-z]{3,20})$/i.test(v)) keep.push('color:' + v);
+      else if (k === 'font-size' && /^\d{1,3}(\.\d+)?(px|pt)$/.test(v)) keep.push('font-size:' + v);
+      else if (k === 'font-weight' && /^(bold|normal|[5-8]00)$/.test(v)) keep.push('font-weight:' + v);
+    });
+    return keep.join(';');
+  }
+  function clean(html) {   // پاک‌سازی دوباره (علاوه بر پاک‌سازی سرور)
+    var doc = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+    (function walk(node) {
+      Array.prototype.slice.call(node.childNodes).forEach(function (c) {
+        if (c.nodeType === 3) return;
+        if (c.nodeType !== 1 || !OK_TAGS[c.tagName]) { node.removeChild(c); return; }
+        var st = cleanStyle(c.getAttribute('style'));
+        Array.prototype.slice.call(c.attributes).forEach(function (a) { c.removeAttribute(a.name); });
+        if (st) c.setAttribute('style', st);
+        walk(c);
+      });
+    })(doc.body.firstChild);
+    return doc.body.firstChild.innerHTML;
+  }
+
+  var snap = null, tab = 'news', view = null;
+  function fmtDate(iso) { try { return new Date(iso).toLocaleString('fa-IR'); } catch (e) { return ''; } }
+  function render() {
+    var body = $('rbody'), data = snap && snap.data;
+    $('rsync').textContent = snap ? 'آخرین همگام‌سازی: ' + fmtDate(snap.at) : '';
+    $('rback').style.display = view ? '' : 'none';
+    $('rtabs').style.display = view ? 'none' : 'flex';
+    if (!data) { body.innerHTML = '<div class="empty">هنوز نسخهٔ آفلاینی ذخیره نشده است.<br>یک بار برنامه را با اینترنت باز کنید.</div>'; return; }
+    if (view) { body.innerHTML = view(); body.scrollTop = 0; return; }
+    var list = (tab === 'news' ? data.news : data.deep) || [];
+    list = list.slice().sort(function (a, b) { return String(b.week).localeCompare(String(a.week)); });
+    if (!list.length) { body.innerHTML = '<div class="empty">موردی ذخیره نشده است.</div>'; return; }
+    body.innerHTML = '';
+    list.forEach(function (it) {
+      var b = document.createElement('button'); b.className = 'item';
+      var n = tab === 'news' ? (it.research.length ? it.research.length + ' نسخهٔ تحقیق' : '') + (it.script ? (it.research.length ? ' · ' : '') + 'اسکریپت' : '') : '';
+      b.innerHTML = esc(it.title) + '<small>' + esc(n || it.status || '') + '</small>';
+      b.onclick = function () { view = function () { return tab === 'news' ? newsDoc(it) : deepDoc(it); }; $('rtitle').textContent = it.title; render(); };
+      body.appendChild(b);
+    });
+  }
+  function scriptHtml(it) {
+    if (it.script_html) return clean(it.script_html);
+    return esc(it.script).split('\n').map(function (l) { return '<div>' + (l || '<br>') + '</div>'; }).join('');
+  }
+  function newsDoc(it) {
+    var h = '<div class="doc">';
+    if (it.script) h += '<h2>اسکریپت</h2>' + scriptHtml(it);
+    it.research.slice().reverse().forEach(function (v) {
+      h += '<div class="vtitle">' + esc(v.q || 'بررسی اولیه') + ' · ' + esc(v.ts) + '</div>' + md(v.text);
+    });
+    return h + '</div>';
+  }
+  function deepDoc(it) {
+    var h = '<div class="doc">';
+    if (it.narration_html || it.narration) {
+      h += '<h2>متن کامل نریشن</h2>' + (it.narration_html ? clean(it.narration_html)
+        : esc(it.narration).split('\n').map(function (l) { return '<div>' + (l || '<br>') + '</div>'; }).join(''));
+    }
+    if (it.scenario) h += md(it.scenario);
+    return h + '</div>';
+  }
+
+  function open() { loadSnap().then(function (s) { snap = s; view = null; $('rtitle').textContent = 'نسخهٔ آفلاین'; $('reader').classList.add('on'); render(); }); }
+  function close() { $('reader').classList.remove('on'); }
+  $('rclose').onclick = close;
+  $('rback').onclick = function () { view = null; $('rtitle').textContent = 'نسخهٔ آفلاین'; render(); };
+  $('tNews').onclick = function () { tab = 'news'; $('tNews').className = 'on'; $('tDeep').className = ''; render(); };
+  $('tDeep').onclick = function () { tab = 'deep'; $('tDeep').className = 'on'; $('tNews').className = ''; render(); };
+  $('openOff').onclick = open;
+
+  // ---------- وضعیت اینترنت
+  function net() {
+    $('offbar').style.display = navigator.onLine ? 'none' : 'flex';
+  }
+  window.addEventListener('online', net); window.addEventListener('offline', function () { net(); });
+  net();
+  if (!navigator.onLine) open();
+
+  $('app').addEventListener('load', function () {
+    setTimeout(function () { $('splash').style.opacity = 0; }, 800);
   });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+})();
 </script>
 </body>
 </html>
