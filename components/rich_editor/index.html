@@ -27,7 +27,7 @@ body { margin:0; background:transparent; color:var(--fg); font-family:Vazirmatn,
 #save { background:var(--ac); color:#04211d; border-color:var(--ac); font-weight:700; }
 #st { font-size:12px; color:var(--mut); }
 #st.dirty { color:#fbbf24; }
-#ed { min-height:120px; overflow:auto; padding:12px 14px; line-height:2; font-size:16px; outline:none;
+#ed { min-height:120px; overflow:auto; resize:vertical; padding:12px 14px; line-height:2; font-size:16px; outline:none;
       background:#0f1729; border:1px solid var(--bd); border-radius:0 0 12px 12px; }
 #ed:focus { border-color:var(--ac); }
 #ed div, #ed p { margin:0; }
@@ -60,7 +60,15 @@ body { margin:0; background:transparent; color:var(--fg); font-family:Vazirmatn,
   var inited = false;
 
   function post(msg) { msg.isStreamlitMessage = true; window.parent.postMessage(msg, "*"); }
-  function setHeight() { post({ type: "streamlit:setFrameHeight", height: document.body.scrollHeight + 6 }); }
+  var wantH = 360, lastH = 0;
+  function setHeight() {
+    // وقتی قاب داخل پنجرهٔ بسته ساخته شود، ارتفاع واقعی ۰ خوانده می‌شود؛ پس تا وقتی دیده نشده از ارتفاع پیش‌فرض استفاده می‌کنیم
+    var h = document.body.scrollHeight;
+    if (h < 60) h = wantH + 70;
+    h += 6;
+    if (h !== lastH) { lastH = h; post({ type: "streamlit:setFrameHeight", height: h }); }
+  }
+  if (window.ResizeObserver) new ResizeObserver(setHeight).observe(document.body);   // باز شدن پنجره یا بزرگ/کوچک‌کردن با گوشه
 
   SIZES.forEach(function (s) { var o = document.createElement("option"); o.value = s; o.textContent = s; sizeSel.appendChild(o); });
   sizeSel.value = BASE;
@@ -199,7 +207,8 @@ body { margin:0; background:transparent; color:var(--fg); font-family:Vazirmatn,
     if (!inited) {             // فقط بار اول؛ بعد از آن محتوای در حال ویرایش را عوض نمی‌کنیم
       inited = true;
       ed.innerHTML = a.html || "";
-      ed.style.height = (a.height || 300) + "px";
+      wantH = a.height || 300;
+      ed.style.height = wantH + "px";
     }
     setHeight();
   });
