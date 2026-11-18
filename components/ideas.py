@@ -3,7 +3,7 @@ import datetime as dt
 
 import streamlit as st
 
-from core.ai import DEEP_PROMPT, ask_ai
+from core.ai import research_deep
 from core.helpers import H, chip, esc
 
 
@@ -27,10 +27,19 @@ def render_ideas():
                     ss.cal_year, ss.cal_month = pub.year, pub.month
                     st.rerun()
                 if add_scn:
-                    text = ask_ai(DEEP_PROMPT.format(title=topic["title"]))
+                    text = research_deep(topic["title"])
                     if text:
                         topic["scenario"] = text
                         st.rerun()
                 if topic["scenario"]:
-                    with st.expander("سناریو و زوایای روایت"):
-                        st.markdown(topic["scenario"])
+                    with st.expander("سناریوی کامل و تحقیق دیپ‌دایو", expanded=True):
+                        view, edit = st.tabs([":material/visibility: نمایش", ":material/edit: ویرایش"])
+                        with view:
+                            st.markdown(topic["scenario"])
+                        with edit:
+                            edited = st.text_area("متن سناریو (مارک‌داون)", value=topic["scenario"],
+                                                  height=420, key=f"scn_edit_{idx}")
+                            if st.button(":material/save: ذخیره ویرایش", key=f"scn_save_{idx}"):
+                                topic["scenario"] = edited
+                                st.toast("ذخیره شد")
+                                st.rerun()
