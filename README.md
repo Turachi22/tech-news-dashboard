@@ -1,35 +1,52 @@
 # داشبورد کانال ساده
 
-هر بخش برنامه یک فایل جدا دارد. موقع اصلاح، فقط همان فایل را عوض کنید؛ بقیه دست‌نخورده می‌مانند.
+هر بخش برنامه یک فایل کوچک و جدا دارد. موقع اصلاح، فقط همان فایل را عوض کنید؛ بقیه دست‌نخورده می‌مانند.
 
 ```
-app.py                      ← منو (فهرست ROUTES) و مسیریابی صفحه‌ها
-core/
-  style.py                  ← ظاهر: رنگ‌ها، فونت، کارت‌ها، موبایل (CSS)
-  helpers.py                ← اعداد فارسی، چیپ وضعیت، عنوان صفحه
-  state.py                  ← دادهٔ پیش‌فرض، ذخیره/بارگذاری (data.json)
-  ai.py                     ← Gemini: مدل‌ها، کلیدها، جست‌وجو، لینک منبع، پرامپت‌ها
-  export.py                 ← خروجی Word
-components/                 ← کارت‌های قابل‌استفادهٔ مجدد
-  sidebar.py                ← منوی کناری و پنل کلیدها
-  workflow.py               ← جریان کاری اخبار، تأیید/رد، اسکریپت
-  ideas.py                  ← ایده‌های دیپ‌دایو
-  stats_card.py             ← آمار
-  calendar_card.py          ← تقویم
-views/                      ← صفحه‌ها (فقط چیدمان کارت‌ها)
+app.py                         ← منو (ROUTES) و مسیریابی صفحه‌ها
+views/                         ← صفحه‌ها (فقط چیدمان کارت‌ها)
   home.py  news.py  deep.py  stats.py  settings.py
+
+components/                    ← کارت‌های قابل‌استفادهٔ مجدد
+  workflow.py                  ← کارت هر خبر، دسته‌بندی تأیید/رد/انتظار
+  research_box.py              ← نسخه‌های تحقیق، پرسش تکمیلی، حالت دستی
+  script_box.py                ← کادر اسکریپت (ویرایشگر رنگ/اندازه) + دادهٔ Word
+  week_nav.py                  ← کلید هفتهٔ قبل/بعد
+  ideas.py                     ← کارت دیپ‌دایو (سناریو، ویرایش نریشن، رد)
+  rich_editor/index.html       ← خود ویرایشگر رنگ و اندازه (HTML/JS)
+  sidebar.py  stats_card.py  calendar_card.py
+
+core/
+  ai/                          ← Gemini + Groq (نقشهٔ کامل در core/ai/__init__.py)
+    config.py                  ← مدل‌ها و سقف مصرف (برای عوض‌کردن مدل)
+    prompts_news.py            ← پرامپت بررسی خبر و نظریه‌های توطئه
+    prompts_deep.py            ← پرامپت سناریوی دیپ‌دایو (۸ بخش + نریشن)
+    prompts_suggest.py         ← معیارهای پیشنهاد خبر روزانه
+    deep_ideas.py              ← معیار نمره‌دار پیشنهاد هفتگی دیپ‌دایو
+    research.py  suggest_news.py  gemini.py  gemini_models.py  diagnostics.py  text_utils.py
+  feeds/                       ← جمع‌آوری خبر از فیدها
+    sources.py                 ← فهرست سایت‌ها (برای افزودن/حذف منبع)
+    config.py  fetch.py  rank.py  collect.py
+  style/                       ← ظاهر (CSS)
+    base.py  cards.py  news.py  dashboard.py
+  state.py  daily.py  deep_suggest.py  richtext.py  export.py
+  helpers.py  auth.py  backup.py  storage.py  groq_client.py  pwa.py
 ```
 
 ## کدام بخش را کجا عوض کنم؟
 | می‌خواهم... | فایل |
 |---|---|
-| گزینه به منو اضافه یا حذف کنم | `app.py` (ROUTES) |
-| ظاهر پنل کناری / کلیدها را عوض کنم | `components/sidebar.py` |
-| رنگ و فونت و فاصله‌ها را عوض کنم | `core/style.py` |
-| چیدمان صفحهٔ خانه را عوض کنم | `views/home.py` |
-| کارت اخبار، دکمه‌ها، اسکریپت | `components/workflow.py` |
-| صفحهٔ اخبار (فرم افزودن، خروجی کلی) | `views/news.py` |
-| پرامپت یا رفتار Gemini | `core/ai.py` |
+| منو یا صفحه اضافه/حذف کنم | `app.py` (ROUTES) |
+| مدل‌های Gemini یا سقف مصرف | `core/ai/config.py` |
+| معیارهای پیشنهاد خبر روزانه | `core/ai/prompts_suggest.py` |
+| معیار/وزن نمره‌دهی موضوع‌های دیپ‌دایو | `core/ai/deep_ideas.py` (بالای فایل) |
+| قالب سناریوی دیپ‌دایو یا نریشن | `core/ai/prompts_deep.py` |
+| قالب بررسی خبر | `core/ai/prompts_news.py` |
+| سایت‌های خبری (افزودن/حذف) | `core/feeds/sources.py` |
+| رنگ‌ها و فونت | `core/style/base.py` (متغیرهای `:root`) |
+| ظاهر کارت‌ها / دکمه‌ها / موبایل | `core/style/cards.py` · `news.py` · `dashboard.py` |
+| رنگ و اندازهٔ ویرایشگر متن | `components/rich_editor/index.html` |
+| زمان پیشنهاد هفتگی دیپ‌دایو (جمعه) | `core/deep_suggest.py` |
 | قالب فایل Word | `core/export.py` |
 
 ## افزودن صفحهٔ جدید
@@ -39,4 +56,4 @@ views/                      ← صفحه‌ها (فقط چیدمان کارت‌
 ## نکات
 - پوشه‌ها را با همین ساختار در GitHub بگذارید (کنار `app.py` و `requirements.txt`).
 - کلیدهای Gemini را فقط در Streamlit ← Settings ← Secrets بگذارید: `GEMINI_API_KEYS = ["کلید-اول", "کلید-دوم"]`
-- `data.json` را به GitHub نفرستید (در `.gitignore` هست). قبل از هر به‌روزرسانی، اسکریپت‌ها را با «Word» دانلود کنید.
+- `data.json` را به GitHub نفرستید. قبل از هر به‌روزرسانی، اسکریپت‌ها را با «Word» دانلود کنید.

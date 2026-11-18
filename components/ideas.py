@@ -4,7 +4,7 @@ import re
 
 import streamlit as st
 
-from components.workflow import _week_nav, _week_range
+from components.week_nav import week_nav, week_range
 from core import richtext
 from core.ai import DEEP_TYPE_FA, research_deep
 from core.deep_suggest import ensure_deep_suggestions, refill_button, reject_topic
@@ -67,7 +67,7 @@ def render_ideas():
     ensure_deep_suggestions()
     with st.container(border=True):
         H('<div class="card-title">ایده‌های موضوعات دیپ‌دایو</div>')
-        week, _off = _week_nav(_week_range, prefix="deep_")
+        week, _off = week_nav(week_range, prefix="deep_")
         pub = st.date_input("تاریخ انتشار پیشنهادی",
                             value=dt.date.today() + dt.timedelta(days=3), key="pub_date")
         cur = current_week()   # پیشنهادِ جمعه برای هفتهٔ بعد ثبت می‌شود ولی تا آن موقع در «هفتهٔ جاری» نمایش داده می‌شود

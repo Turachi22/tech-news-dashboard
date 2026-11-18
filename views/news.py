@@ -3,7 +3,8 @@ import datetime as dt
 
 import streamlit as st
 
-from components.workflow import approved_sections, render_workflow
+from components.script_box import approved_sections
+from components.workflow import render_workflow
 from core.ai import suggest_news
 from core.state import current_week
 from core.export import DOCX_MIME, HAS_DOCX, make_docx
