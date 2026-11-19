@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>فعال‌سازی اعلان</title>
+<style>
+body{font-family:system-ui,Tahoma,sans-serif;background:#0b0f1a;color:#e8ecf4;margin:0;padding:20px;line-height:1.9}
+.box{max-width:520px;margin:0 auto}
+button{font:inherit;padding:12px 18px;border-radius:12px;border:0;background:#2dd4bf;color:#06222a;font-weight:700;width:100%;margin:6px 0}
+button.sec{background:#1b2336;color:#e8ecf4;border:1px solid #2c3750}
+textarea{width:100%;height:150px;direction:ltr;background:#111827;color:#9ef0e3;border:1px solid #2c3750;border-radius:10px;padding:8px;font-size:12px;box-sizing:border-box}
+#st{margin:10px 0;padding:10px;border-radius:10px;background:#111827}
+</style>
+</head>
+<body>
+<div class="box">
+<h2>🔔 فعال‌سازی اعلان تیترهای روزانه</h2>
+<p>این صفحه را باید یک بار روی گوشی (Chrome) باز کنید.</p>
+<button id="go">۱) فعال‌سازی اعلان</button>
+<div id="st">آماده</div>
+<textarea id="out" readonly placeholder="کد اشتراک اینجا ظاهر می‌شود"></textarea>
+<button id="copy" class="sec">۲) کپی کد اشتراک</button>
+<button id="test" class="sec">۳) آزمایش اعلان (همین‌جا)</button>
+</div>
+<script>
+var PUB = 'BHgmcinBmZujLgOyv-pSEWlIHBMLVeCBYaP7U9NeaF4kdsUeHUvUOXks91PuUn78nfjzdM5V8EwvqBhHaCceFdI';
+function $(i){return document.getElementById(i);}
+function st(t){$('st').textContent=t;}
+function u8(b64){var p='='.repeat((4-b64.length%4)%4),s=(b64+p).replace(/-/g,'+').replace(/_/g,'/'),r=atob(s),o=new Uint8Array(r.length);for(var i=0;i<r.length;i++)o[i]=r.charCodeAt(i);return o;}
+$('go').onclick=async function(){
+  try{
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)){st('این مرورگر اعلان را پشتیبانی نمی‌کند.');return;}
+    var reg=await navigator.serviceWorker.register('sw.js');
+    await navigator.serviceWorker.ready;
+    var perm=await Notification.requestPermission();
+    if(perm!=='granted'){st('اجازهٔ اعلان داده نشد. از تنظیمات سایت در Chrome آن را روی «اجازه» بگذارید.');return;}
+    var sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(PUB)});
+    $('out').value=JSON.stringify(sub);
+    st('فعال شد ✅ — حالا کد زیر را کپی کنید.');
+  }catch(e){st('خطا: '+(e&&e.message?e.message:e));}
+};
+$('copy').onclick=async function(){
+  var v=$('out').value; if(!v){st('ابتدا دکمهٔ ۱ را بزنید.');return;}
+  try{await navigator.clipboard.writeText(v);st('کپی شد ✅');}catch(e){$('out').select();document.execCommand('copy');st('کپی شد (یا دستی انتخاب و کپی کنید).');}
+};
+$('test').onclick=async function(){
+  try{var reg=await navigator.serviceWorker.ready;
+    await reg.showNotification('آزمایش اعلان',{body:'اگر این را می‌بینید، اعلان‌ها کار می‌کنند ✅',dir:'rtl',icon:'icon-192.png',tag:'test'});
+  }catch(e){st('خطا: '+e.message);}
+};
+</script>
+</body>
+</html>
