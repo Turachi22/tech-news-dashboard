@@ -10,8 +10,6 @@ import os
 import sys
 import time
 import types
-import urllib.error
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -53,15 +51,19 @@ def translate(titles):
     prompt = ("Translate these English tech news headlines into natural, concise Persian (Farsi) headlines. "
               "Keep product and company names in English. Return ONLY a JSON array of exactly "
               f"{len(titles)} strings in the same order.\n" + json.dumps(titles, ensure_ascii=False))
-    body = json.dumps({"contents": [{"parts": [{"text": prompt}]}],
-                       "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2}}).encode()
+    try:   # همان کتابخانه‌ای که خود برنامه استفاده می‌کند؛ پس هر قالبی از کلید که در برنامه کار می‌کند اینجا هم کار می‌کند
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=key)
+    except Exception as exc:  # noqa: BLE001
+        print(f"google-genai در دسترس نیست: {exc}")
+        return titles
     for model in MODELS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=40) as r:  # noqa: S310
-                data = json.load(r)
-            arr = json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
+            resp = client.models.generate_content(
+                model=model, contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2))
+            arr = json.loads(resp.text)
             if isinstance(arr, list) and len(arr) == len(titles) and all(isinstance(x, str) and x.strip() for x in arr):
                 return [x.strip() for x in arr]
         except Exception as exc:  # noqa: BLE001
