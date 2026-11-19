@@ -1,0 +1,20 @@
+name: daily-news-push
+on:
+  schedule:
+    # ۰۰:۰۰ به وقت پاکستان (UTC+5) = ۱۹:۰۰ UTC؛ GitHub ممکن است ۵ تا ۳۰ دقیقه دیرتر شروع کند
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pywebpush
+      - env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PUSH_SUBSCRIPTION: ${{ secrets.PUSH_SUBSCRIPTION }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python notify/daily_push.py
