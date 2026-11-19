@@ -24,6 +24,9 @@ from core.feeds.sources import DOMAIN_FA  # noqa: E402
 COUNT = 3
 MODELS = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash"]
 SITE = "https://mossawikian.github.io/tech-news-dashboard/"
+VAPID_SUB = os.environ.get("VAPID_EMAIL", "").strip() or "mailto:admin@example.com"
+if not VAPID_SUB.startswith("mailto:"):
+    VAPID_SUB = "mailto:" + VAPID_SUB
 
 
 def pick_top(cands, n=COUNT):
@@ -59,15 +62,22 @@ def translate(titles):
         print(f"google-genai در دسترس نیست: {exc}")
         return titles
     for model in MODELS:
-        try:
-            resp = client.models.generate_content(
-                model=model, contents=prompt,
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2))
-            arr = json.loads(resp.text)
-            if isinstance(arr, list) and len(arr) == len(titles) and all(isinstance(x, str) and x.strip() for x in arr):
-                return [x.strip() for x in arr]
-        except Exception as exc:  # noqa: BLE001
-            print(f"ترجمه با {model} ناموفق: {type(exc).__name__}: {str(exc)[:120]}")
+        for attempt in (1, 2, 3):
+            try:
+                resp = client.models.generate_content(
+                    model=model, contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2))
+                arr = json.loads(resp.text)
+                if isinstance(arr, list) and len(arr) == len(titles) and all(isinstance(x, str) and x.strip() for x in arr):
+                    return [x.strip() for x in arr]
+                break
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                print(f"ترجمه با {model} (تلاش {attempt}) ناموفق: {type(exc).__name__}: {msg[:120]}")
+                if attempt < 3 and any(w in msg for w in ("503", "UNAVAILABLE", "429", "overloaded")):
+                    time.sleep(8 * attempt)     # شلوغی موقت سرور گوگل؛ کمی صبر و دوباره
+                    continue
+                break
     return titles
 
 
@@ -109,7 +119,7 @@ def main():
         for sub in subs:
             try:
                 webpush(subscription_info=sub, data=json.dumps(payload, ensure_ascii=False),
-                        vapid_private_key=priv, vapid_claims={"sub": SITE}, ttl=6 * 3600)
+                        vapid_private_key=priv, vapid_claims={"sub": VAPID_SUB}, ttl=6 * 3600)
                 print(f"ارسال شد {i}: {title[:60]}")
             except WebPushException as exc:
                 failed += 1
