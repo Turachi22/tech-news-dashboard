@@ -7,7 +7,7 @@ from core.auth import logout_button
 from core.backup import backup_section
 from core.helpers import header
 from core.state import ARCHIVE_DAYS, DATA_FILE
-from core.storage import remote_enabled
+from core.storage import remote_enabled, save_remote
 
 
 def render():
@@ -37,7 +37,13 @@ def render():
             with st.spinner("در حال دریافت از منابع (حدود ۲۰ تا ۳۰ ثانیه)..."):
                 feeds.health_report()
         if st.button("بازنشانی همهٔ داده‌ها"):
-            for k in ("news_list", "deep_topics", "events", "daily"):
+            if remote_enabled():       # بدون پاک‌کردن Gist، داده‌های قدیمی بعد از بازنشانی دوباره بارگذاری می‌شوند
+                try:
+                    save_remote("{}")
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"پاک‌کردن نسخهٔ Gist ناموفق بود؛ بازنشانی انجام نشد: {str(exc)[:150]}")
+                    st.stop()
+            for k in ("news_list", "deep_topics", "events", "daily", "_saved_hash", "_remote_retry_after"):
                 st.session_state.pop(k, None)
             DATA_FILE.unlink(missing_ok=True)
             st.rerun()
